@@ -1,0 +1,27 @@
+city,state,series_ticker,lat,lon,nws_station,station_name,priority
+New York City,NY,KXHIGHNY,40.7128,-74.0060,KNYC,Central Park,1
+Chicago,IL,KXHIGHCHI,41.8781,-87.6298,KMDW,Chicago Midway Airport,1
+Miami,FL,KXHIGHMIA,25.7617,-80.1918,KMIA,Miami International Airport,1
+Austin,TX,KXHIGHAUS,30.2672,-97.7431,KAUS,Austin-Bergstrom International Airport,1
+Los Angeles,CA,KXHIGHLAX,34.0522,-118.2437,KLAX,Los Angeles International Airport,1
+Houston,TX,KXHIGHTHOU,29.7604,-95.3698,KHOU,William P. Hobby Airport,1
+Atlanta,GA,KXHIGHTATL,33.7490,-84.3880,KATL,Hartsfield-Jackson Atlanta International Airport,1
+Boston,MA,KXHIGHTBOS,42.3601,-71.0589,KBOS,Logan International Airport,1
+Charlotte,NC,KXHIGHTCLT,35.2271,-80.8431,KCLT,Charlotte Douglas International Airport,2
+Dallas,TX,KXHIGHTDAL,32.7767,-96.7970,KDFW,Dallas/Fort Worth International Airport,1
+Denver,CO,KXHIGHDEN,39.7392,-104.9903,KDEN,Denver International Airport,1
+Detroit,MI,KXHIGHTDTW,42.3314,-83.0458,KDTW,Detroit Metro Airport,2
+Las Vegas,NV,KXHIGHTLV,36.1699,-115.1398,KLAS,Harry Reid International Airport,1
+Minneapolis,MN,KXHIGHTMIN,44.9778,-93.2650,KMSP,Minneapolis-St. Paul International Airport,1
+Nashville,TN,KXHIGHTBNA,36.1627,-86.7816,KBNA,Nashville International Airport,2
+New Orleans,LA,KXHIGHTNOLA,29.9511,-90.0715,KMSY,Louis Armstrong New Orleans International Airport,1
+Oklahoma City,OK,KXHIGHTOKC,35.4676,-97.5164,KOKC,Will Rogers World Airport,1
+Philadelphia,PA,KXHIGHPHIL,39.9526,-75.1652,KPHL,Philadelphia International Airport,1
+Phoenix,AZ,KXHIGHTPHX,33.4484,-112.0740,KPHX,Phoenix Sky Harbor International Airport,1
+Portland,OR,KXHIGHTPDX,45.5152,-122.6784,KPDX,Portland International Airport,2
+Salt Lake City,UT,KXHIGHTSLC,40.7608,-111.8910,KSLC,Salt Lake City International Airport,2
+San Antonio,TX,KXHIGHTSATX,29.4241,-98.4936,KSAT,San Antonio International Airport,1
+San Diego,CA,KXHIGHTSAN,32.7157,-117.1611,KSAN,San Diego International Airport,2
+San Francisco,CA,KXHIGHTSFO,37.6188,-122.3754,KSFO,San Francisco International Airport,1
+Seattle,WA,KXHIGHTSEA,47.6062,-122.3321,KSEA,Seattle-Tacoma International Airport,1
+Washington DC,DC,KXHIGHTDC,38.9072,-77.0369,KDCA,Reagan National Airport,1

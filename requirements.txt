@@ -1,0 +1,8 @@
+streamlit
+pandas
+requests
+plotly
+pydeck
+cryptography
+python-dotenv
+lxml
