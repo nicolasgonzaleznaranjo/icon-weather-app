@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
+from html import escape
 
 from src.data_models import MarketConfig
 
@@ -15,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MARKETS_PATH = ROOT / "config" / "markets.csv"
 TRADE_LOG_PATH = ROOT / "data" / "trade_log.csv"
 CACHED_FORECASTS_PATH = ROOT / "data" / "cached_forecasts.csv"
+KALSHI_TRANSACTIONS_PATH = ROOT / "data" / "Kalshi-Transactions-2026.csv"
+KALSHI_RECENT_ACTIVITY_PATH = ROOT / "data" / "Kalshi-Recent-Activity-All.csv"
+KALSHI_SETTLEMENTS_PATH = ROOT / "data" / "Kalshi-Recent-Activity-Settlement.csv"
 USER_AGENT = "ICONWeatherApp/1.0 (support@iconweatherapp.local)"
 
 
@@ -125,6 +129,47 @@ def bootstrap_page(page_title: str) -> None:
                 border-radius: 16px;
                 overflow: hidden;
             }
+            .monitor-wrap {
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                overflow: hidden;
+                background: var(--surface);
+            }
+            .monitor-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: .96rem;
+            }
+            .monitor-table th {
+                background: #1b1f27;
+                color: var(--muted);
+                font-size: .8rem;
+                font-weight: 700;
+                letter-spacing: .02em;
+                padding: .9rem .8rem;
+                text-align: left;
+                border-bottom: 1px solid var(--border);
+                white-space: nowrap;
+            }
+            .monitor-table td {
+                padding: .9rem .8rem;
+                border-bottom: 1px solid rgba(255,255,255,.06);
+                vertical-align: middle;
+            }
+            .monitor-table tr:last-child td {
+                border-bottom: none;
+            }
+            .monitor-table tr.highlight-row td {
+                background: rgba(97,167,255,.12);
+            }
+            .signal-check {
+                color: var(--green);
+                font-weight: 800;
+            }
+            .signal-no-check {
+                color: var(--muted);
+                font-weight: 700;
+            }
             div[data-testid="stMetric"] {
                 background: var(--surface);
                 border: 1px solid var(--border);
@@ -232,3 +277,35 @@ def secret_present(name: str) -> bool:
         return name in st.secrets
     except Exception:
         return False
+
+
+def render_monitor_table(df: pd.DataFrame, *, highlight_city: str | None = None) -> None:
+    if df.empty:
+        st.info("No rows available yet.")
+        return
+    header = "".join(f"<th>{escape(str(column))}</th>" for column in df.columns)
+    body_rows: list[str] = []
+    for _, row in df.iterrows():
+        row_classes: list[str] = []
+        if highlight_city and str(row.get("City", "")) == highlight_city:
+            row_classes.append("highlight-row")
+        cells: list[str] = []
+        for column in df.columns:
+            value = row[column]
+            if column == "Signal":
+                css = "signal-check" if str(value).strip().lower() == "check" else "signal-no-check"
+                cell_html = f"<span class='{css}'>{escape(str(value))}</span>"
+            else:
+                cell_html = escape("" if pd.isna(value) else str(value))
+            cells.append(f"<td>{cell_html}</td>")
+        class_attr = f" class='{' '.join(row_classes)}'" if row_classes else ""
+        body_rows.append(f"<tr{class_attr}>{''.join(cells)}</tr>")
+    html = f"""
+    <div class="monitor-wrap">
+        <table class="monitor-table">
+            <thead><tr>{header}</tr></thead>
+            <tbody>{''.join(body_rows)}</tbody>
+        </table>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)

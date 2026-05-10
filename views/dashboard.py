@@ -62,7 +62,7 @@ metric_card_row(
     ]
 )
 
-if trade_source != "kalshi":
+if trade_source == "csv":
     st.warning("Kalshi trade history is unavailable right now, so Dashboard performance is falling back to the local ledger.")
 
 metric_card_row(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from src.market_data import load_high_monitor_rows
-from src.utils import bootstrap_page
+from src.utils import bootstrap_page, render_monitor_table
 
 bootstrap_page("High Temperature Monitor")
 st.markdown(
@@ -24,9 +24,5 @@ if st.button("Refresh High Temp Data"):
     st.rerun()
 
 monitor_df = load_high_monitor_rows().copy()
-st.dataframe(
-    monitor_df,
-    use_container_width=True,
-    hide_index=True,
-    height=820,
-)
+highlight_city = st.selectbox("Highlight city", ["None"] + monitor_df["City"].tolist(), key="high-highlight")
+render_monitor_table(monitor_df, highlight_city=None if highlight_city == "None" else highlight_city)

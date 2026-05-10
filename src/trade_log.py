@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from src.kalshi_client import KalshiClient, cents_int_to_dollars, dollars_field, parse_balance
-from src.utils import TRADE_LOG_PATH, load_market_config
+from src.utils import KALSHI_TRANSACTIONS_PATH, TRADE_LOG_PATH, load_market_config
 
 
 def _market_lookup() -> dict[str, dict]:
@@ -61,6 +61,65 @@ def _coerce_money(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_imported_kalshi_transactions(path: str | Path = KALSHI_TRANSACTIONS_PATH) -> pd.DataFrame:
+    csv_path = Path(path)
+    if not csv_path.exists():
+        return pd.DataFrame()
+    raw = pd.read_csv(csv_path)
+    if raw.empty:
+        return pd.DataFrame()
+    lookup = _market_lookup()
+    raw["date_opened"] = pd.to_datetime(raw["open_timestamp"], errors="coerce")
+    raw["date_closed"] = pd.to_datetime(raw["close_timestamp"], errors="coerce")
+    raw["contracts"] = pd.to_numeric(raw["quantity"], errors="coerce")
+    raw["entry_price"] = pd.to_numeric(raw["entry_price_cents"], errors="coerce") / 100
+    raw["exit_price"] = pd.to_numeric(raw["exit_price_cents"], errors="coerce") / 100
+    raw["fees"] = (
+        pd.to_numeric(raw["open_fees_cents"], errors="coerce").fillna(0)
+        + pd.to_numeric(raw["close_fees_cents"], errors="coerce").fillna(0)
+    ) / 100
+    raw["gross_pnl"] = pd.to_numeric(raw["realized_pnl_without_fees_cents"], errors="coerce") / 100
+    raw["net_pnl"] = pd.to_numeric(raw["realized_pnl_with_fees_cents"], errors="coerce") / 100
+
+    records: list[dict] = []
+    for idx, row in raw.iterrows():
+        meta = _series_match(str(row.get("market_ticker") or ""), lookup)
+        invested = float((row.get("entry_price") or 0) * (row.get("contracts") or 0) + (row.get("fees") or 0))
+        net_pnl = float(row.get("net_pnl") or 0)
+        records.append(
+            {
+                "trade_id": f"CSV-{idx + 1:04d}",
+                "date_opened": row.get("date_opened"),
+                "date_closed": row.get("date_closed"),
+                "market": meta["market"],
+                "nws_station": meta["nws_station"],
+                "high_low": meta["high_low"],
+                "contract_threshold": _decode_contract_threshold(str(row.get("market_ticker") or "")),
+                "direction": str(row.get("side") or "").upper(),
+                "entry_price": row.get("entry_price"),
+                "exit_price": row.get("exit_price"),
+                "contracts": row.get("contracts"),
+                "fees": row.get("fees"),
+                "gross_pnl": row.get("gross_pnl"),
+                "net_pnl": net_pnl,
+                "roi": (net_pnl / invested) if invested else None,
+                "status": "Closed",
+                "result": "Win" if net_pnl > 0 else "Loss" if net_pnl < 0 else "Flat",
+                "thesis": "",
+                "forecast_at_entry": None,
+                "forecast_at_exit": None,
+                "settlement_value": row.get("exit_price"),
+                "notes": "Imported from Kalshi transactions CSV",
+                "market_ticker": row.get("market_ticker"),
+            }
+        )
+    df = pd.DataFrame(records)
+    if not df.empty:
+        df["close_day"] = df["date_closed"].dt.date
+    return df
+
+
+@st.cache_data(ttl=300)
 def load_trade_log(path: str | Path = TRADE_LOG_PATH) -> pd.DataFrame:
     df = pd.read_csv(path)
     for column in ["date_opened", "date_closed"]:
@@ -97,6 +156,7 @@ def load_kalshi_account_snapshot() -> dict:
         "connected": False,
         "balance": None,
         "portfolio_value": None,
+        "positions_value": None,
         "positions": pd.DataFrame(),
         "settlements": pd.DataFrame(),
         "error": None,
@@ -122,12 +182,13 @@ def load_kalshi_account_snapshot() -> dict:
         return snapshot
 
     balance = parse_balance(balance_payload)
-    portfolio_value = parse_balance(
+    positions_value = parse_balance(
         {
             "portfolio_value": balance_payload.get("portfolio_value"),
             "portfolio_value_dollars": balance_payload.get("portfolio_value_dollars"),
         }
     )
+    portfolio_value = (balance or 0.0) + (positions_value or 0.0) if balance is not None or positions_value is not None else None
 
     positions_rows: list[dict] = []
     for row in positions_payload.get("market_positions", []):
@@ -217,6 +278,7 @@ def load_kalshi_account_snapshot() -> dict:
 
     snapshot["connected"] = True
     snapshot["balance"] = balance
+    snapshot["positions_value"] = positions_value
     snapshot["portfolio_value"] = portfolio_value
     snapshot["positions"] = pd.DataFrame(positions_rows)
     snapshot["settlements"] = pd.DataFrame(settlements_rows)
@@ -224,6 +286,13 @@ def load_kalshi_account_snapshot() -> dict:
 
 
 def get_effective_trade_log() -> tuple[pd.DataFrame, str]:
+    imported = load_imported_kalshi_transactions()
+    if not imported.empty:
+        live = load_kalshi_account_snapshot()
+        positions = live.get("positions", pd.DataFrame())
+        frames = [df for df in [positions, imported] if not df.empty]
+        combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        return combined, "kalshi_csv"
     live = load_kalshi_account_snapshot()
     settlements = live.get("settlements", pd.DataFrame())
     positions = live.get("positions", pd.DataFrame())
@@ -239,6 +308,7 @@ def get_portfolio_summary() -> dict[str, float | None | str]:
     return {
         "source": "kalshi" if live.get("connected") else "csv",
         "balance": live.get("balance"),
+        "positions_value": live.get("positions_value"),
         "portfolio_value": live.get("portfolio_value"),
         "error": live.get("error"),
     }

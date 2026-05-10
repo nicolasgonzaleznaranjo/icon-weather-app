@@ -8,11 +8,11 @@ st.set_page_config(page_title="ICON Weather App", layout="wide", initial_sidebar
 navigation = st.navigation(
     [
         st.Page("views/dashboard.py", title="Dashboard", icon=":material/home:", default=True),
-        st.Page("pages/2_High_Temp_Monitor.py", title="High Temp Monitor"),
-        st.Page("pages/3_Low_Temp_Monitor.py", title="Low Temp Monitor"),
-        st.Page("pages/4_Market_Map.py", title="Market Map"),
-        st.Page("pages/8_Temperature_Record.py", title="Temperature Record"),
-        st.Page("pages/9_Trade_Log.py", title="Trade Log"),
+        st.Page("pages/2_High_Temp_Monitor.py", title="High Temp Monitor", icon=":material/wb_sunny:"),
+        st.Page("pages/3_Low_Temp_Monitor.py", title="Low Temp Monitor", icon=":material/thermostat:"),
+        st.Page("pages/4_Market_Map.py", title="Market Map", icon=":material/map:"),
+        st.Page("pages/8_Temperature_Record.py", title="Temperature Record", icon=":material/device_thermostat:"),
+        st.Page("pages/9_Trade_Log.py", title="Trade Log", icon=":material/receipt_long:"),
     ],
     position="sidebar",
 )

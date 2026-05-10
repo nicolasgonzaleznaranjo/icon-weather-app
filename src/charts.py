@@ -116,11 +116,13 @@ def build_map_deck(df: pd.DataFrame) -> pdk.Deck | None:
         get_position="[longitude, latitude]",
         get_text="label",
         get_size=14,
+        size_units="pixels",
         get_color=[238, 242, 247, 220],
         get_angle=0,
         get_text_anchor="middle",
         get_alignment_baseline="bottom",
         get_pixel_offset=[0, -18],
+        billboard=True,
         pickable=False,
     )
     return pdk.Deck(
