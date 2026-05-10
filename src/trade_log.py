@@ -357,6 +357,8 @@ def get_portfolio_summary() -> dict[str, float | None | str]:
 
 def compute_trade_kpis(df: pd.DataFrame) -> dict[str, float]:
     closed = df[df["status"].str.lower() != "open"].copy() if not df.empty else df
+    if not closed.empty and "date_closed" in closed.columns:
+        closed["date_closed"] = pd.to_datetime(closed["date_closed"], errors="coerce")
     pnl_series = closed["net_pnl"].fillna(0) if not closed.empty else pd.Series(dtype=float)
     winners = pnl_series[pnl_series > 0]
     losers = pnl_series[pnl_series < 0]
@@ -366,7 +368,7 @@ def compute_trade_kpis(df: pd.DataFrame) -> dict[str, float]:
     gross_profit = winners.sum()
     gross_loss = abs(losers.sum())
     month_return = 0.0
-    if not closed.empty and "date_closed" in closed.columns:
+    if not closed.empty and "date_closed" in closed.columns and closed["date_closed"].notna().any():
         current_month = pd.Timestamp.now().to_period("M")
         month_df = closed[closed["date_closed"].dt.to_period("M") == current_month].copy()
         month_invested = (month_df["entry_price"].fillna(0) * month_df["contracts"].fillna(0) + month_df["fees"].fillna(0)).sum()

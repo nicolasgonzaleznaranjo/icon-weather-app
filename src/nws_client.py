@@ -48,40 +48,67 @@ class NWSClient:
         observed_low_today = None
         try:
             tables = pd.read_html(StringIO(response.text))
-            table = next((t for t in tables if any("Time" in str(col) for col in t.columns)), None)
+            normalized_tables = []
+            for t in tables:
+                if isinstance(t.columns, pd.MultiIndex):
+                    t.columns = [" ".join(str(part) for part in col if str(part) != "nan").strip() for col in t.columns]
+                else:
+                    t.columns = [str(col).strip() for col in t.columns]
+                normalized_tables.append(t)
+
+            table = next((t for t in normalized_tables if any("Time" in str(col) for col in t.columns)), None)
             if table is not None:
-                temp_column = next((col for col in table.columns if "Air" in str(col) or "Temperature" in str(col)), None)
+                temp_column = next((col for col in table.columns if "Temperature" in str(col) and "Air" in str(col)), None)
+                if temp_column is None:
+                    temp_column = next((col for col in table.columns if "Air" in str(col) or "Temperature" in str(col)), None)
                 time_column = next((col for col in table.columns if "Time" in str(col)), None)
+                date_column = next((col for col in table.columns if str(col).strip().lower() == "date" or " date" in str(col).lower()), None)
                 if temp_column is not None:
                     working = table.copy()
                     working[temp_column] = pd.to_numeric(working[temp_column], errors="coerce")
+                    if date_column is not None:
+                        working[date_column] = pd.to_numeric(working[date_column], errors="coerce")
+                        latest_day = working[date_column].dropna().max()
+                        if pd.notna(latest_day):
+                            working = working[working[date_column] == latest_day].copy()
+
                     if time_column is not None:
                         working[time_column] = working[time_column].astype(str)
 
                         def _to_minutes(value: str) -> int | None:
                             cleaned = value.strip().upper().replace(" ", "")
-                            match_time = re.match(r"(\d{1,2}):(\d{2})(AM|PM)", cleaned)
-                            if not match_time:
-                                return None
-                            hour = int(match_time.group(1))
-                            minute = int(match_time.group(2))
-                            period = match_time.group(3)
-                            if period == "AM":
-                                hour = 0 if hour == 12 else hour
-                            else:
-                                hour = 12 if hour == 12 else hour + 12
-                            return hour * 60 + minute
+                            match_ampm = re.match(r"(\d{1,2}):(\d{2})(AM|PM)", cleaned)
+                            if match_ampm:
+                                hour = int(match_ampm.group(1))
+                                minute = int(match_ampm.group(2))
+                                period = match_ampm.group(3)
+                                if period == "AM":
+                                    hour = 0 if hour == 12 else hour
+                                else:
+                                    hour = 12 if hour == 12 else hour + 12
+                                return hour * 60 + minute
+                            match_24 = re.match(r"(\d{1,2}):(\d{2})", cleaned)
+                            if match_24:
+                                return int(match_24.group(1)) * 60 + int(match_24.group(2))
+                            return None
 
                         working["minutes"] = working[time_column].map(_to_minutes)
-                        after_midnight = working[working["minutes"].notna()].copy()
-                        after_midnight = after_midnight[after_midnight["minutes"] >= 0]
-                        temp_values = after_midnight[temp_column].dropna()
+                        timed = working[working["minutes"].notna() & working[temp_column].notna()].copy()
+                        if not timed.empty:
+                            timed["distance_to_midnight"] = timed["minutes"].abs()
+                            first_obs = timed.sort_values(["distance_to_midnight", "minutes"]).iloc[0]
+                            observed_low_today = float(first_obs[temp_column])
+                            observed_high_today = float(timed[temp_column].max())
+                        else:
+                            temp_values = working[temp_column].dropna()
+                            if not temp_values.empty:
+                                observed_high_today = float(temp_values.max())
+                                observed_low_today = float(temp_values.min())
                     else:
                         temp_values = working[temp_column].dropna()
-
-                    if not temp_values.empty:
-                        observed_high_today = float(temp_values.max())
-                        observed_low_today = float(temp_values.min())
+                        if not temp_values.empty:
+                            observed_high_today = float(temp_values.max())
+                            observed_low_today = float(temp_values.min())
         except Exception:
             pass
         return {
