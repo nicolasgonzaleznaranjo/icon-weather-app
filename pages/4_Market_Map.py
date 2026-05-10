@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.charts import build_map_deck
-from src.market_data import load_market_snapshots
+from src.market_data import load_map_rows
 from src.utils import bootstrap_page
 
 
@@ -23,11 +23,10 @@ st.markdown(
 )
 
 if st.button("Refresh Map Data"):
-    load_market_snapshots.clear()
+    load_map_rows.clear()
     st.rerun()
 
-snapshot = load_market_snapshots()
-map_df = snapshot["map"].copy()
+map_df = load_map_rows().copy()
 deck = build_map_deck(map_df)
 if deck is not None:
     st.pydeck_chart(deck, use_container_width=True)

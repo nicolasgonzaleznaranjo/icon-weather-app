@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.market_data import load_market_snapshots
+from src.market_data import load_high_monitor_rows
 from src.utils import bootstrap_page
 
 bootstrap_page("High Temperature Monitor")
@@ -20,11 +20,10 @@ st.markdown(
 )
 
 if st.button("Refresh High Temp Data"):
-    load_market_snapshots.clear()
+    load_high_monitor_rows.clear()
     st.rerun()
 
-snapshot = load_market_snapshots()
-monitor_df = snapshot["high"].copy()
+monitor_df = load_high_monitor_rows().copy()
 st.dataframe(
     monitor_df,
     use_container_width=True,

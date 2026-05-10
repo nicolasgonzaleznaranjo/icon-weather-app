@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.market_data import load_market_snapshots
+from src.market_data import load_temperature_record_rows
 from src.utils import bootstrap_page
 
 
@@ -22,10 +22,10 @@ st.markdown(
 )
 
 if st.button("Refresh Temperature Record"):
-    load_market_snapshots.clear()
+    load_temperature_record_rows.clear()
     st.rerun()
 
-history_df = load_market_snapshots()["historical"].copy()
+history_df = load_temperature_record_rows().copy()
 
 st.dataframe(
     history_df,
