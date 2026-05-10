@@ -70,9 +70,19 @@ metric_card_row(
     [
         ("Win Rate", f"{kpis['win_rate']:.1%}", "positive" if kpis["win_rate"] >= 0.5 else ""),
         ("ROI Total", f"{kpis['roi_total']:.1%}", "positive" if kpis["roi_total"] >= 0 else "negative"),
-        ("Profit Factor", f"{kpis['profit_factor']:.2f}", "positive" if kpis["profit_factor"] >= 1 else "negative"),
+        ("% Retorno del mes", f"{kpis['month_return']:.1%}", "positive" if kpis["month_return"] >= 0 else "negative"),
         ("Max Drawdown", f"${kpis['max_drawdown']:,.2f}", "negative"),
     ]
+)
+
+st.markdown(
+    """
+    <div class='mini-panel' style='margin-bottom:1rem;'>
+        <strong>Guía rápida del día</strong><br>
+        Verde = días o mercados ganadores. Rojo = perdedores. En Cumulative PNL, la etiqueta final te dice exactamente dónde vas. En Daily PNL y PNL by Market, cada barra ya muestra el valor real encima.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 insight_cols = st.columns(4)

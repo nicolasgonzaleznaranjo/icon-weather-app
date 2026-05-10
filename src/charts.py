@@ -45,7 +45,23 @@ def plot_cumulative_pnl(df: pd.DataFrame) -> go.Figure:
     chart = df.sort_values("date_closed").copy()
     chart["cumulative_pnl"] = chart["net_pnl"].fillna(0).cumsum()
     fig = px.line(chart, x="date_closed", y="cumulative_pnl")
-    fig.update_traces(line={"color": "#6ec27c", "width": 3})
+    fig.update_traces(
+        line={"color": "#6ec27c", "width": 3},
+        mode="lines+markers",
+        hovertemplate="%{x}<br>PNL acumulado: $%{y:.2f}<extra></extra>",
+    )
+    if not chart.empty:
+        last = chart.iloc[-1]
+        fig.add_annotation(
+            x=last["date_closed"],
+            y=last["cumulative_pnl"],
+            text=f"${last['cumulative_pnl']:.2f}",
+            showarrow=True,
+            arrowhead=1,
+            ax=25,
+            ay=-25,
+            font={"color": "#eef2f7"},
+        )
     fig.update_layout(**PLOT_LAYOUT, height=330, yaxis_title="PNL ($)", xaxis_title="")
     return fig
 
@@ -54,8 +70,20 @@ def plot_daily_pnl(df: pd.DataFrame) -> go.Figure:
     if df.empty:
         return _empty_figure("No daily PNL yet.")
     daily = df.dropna(subset=["close_day"]).groupby("close_day", as_index=False)["net_pnl"].sum()
-    fig = px.bar(daily, x="close_day", y="net_pnl", color="net_pnl", color_continuous_scale=["#ff6b6b", "#6ec27c"])
-    fig.update_layout(**PLOT_LAYOUT, height=330, coloraxis_showscale=False, xaxis_title="", yaxis_title="PNL ($)")
+    daily["bar_color"] = daily["net_pnl"].apply(lambda v: "#6ec27c" if v > 0 else "#ff6b6b" if v < 0 else "#6b7280")
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=daily["close_day"],
+                y=daily["net_pnl"],
+                marker_color=daily["bar_color"],
+                text=[f"${v:.2f}" for v in daily["net_pnl"]],
+                textposition="outside",
+                hovertemplate="%{x}<br>PNL del día: $%{y:.2f}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(**PLOT_LAYOUT, height=330, xaxis_title="", yaxis_title="PNL ($)")
     return fig
 
 
@@ -63,8 +91,20 @@ def plot_pnl_by_market(df: pd.DataFrame) -> go.Figure:
     if df.empty:
         return _empty_figure("No market PNL yet.")
     top = df.sort_values("net_pnl", ascending=False).head(12)
-    fig = px.bar(top, x="market", y="net_pnl", color="net_pnl", color_continuous_scale=["#ff6b6b", "#6ec27c"])
-    fig.update_layout(**PLOT_LAYOUT, height=360, coloraxis_showscale=False, xaxis_title="", yaxis_title="PNL ($)")
+    top["bar_color"] = top["net_pnl"].apply(lambda v: "#6ec27c" if v > 0 else "#ff6b6b" if v < 0 else "#6b7280")
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=top["market"],
+                y=top["net_pnl"],
+                marker_color=top["bar_color"],
+                text=[f"${v:.2f}" for v in top["net_pnl"]],
+                textposition="outside",
+                hovertemplate="%{x}<br>PNL: $%{y:.2f}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(**PLOT_LAYOUT, height=360, xaxis_title="", yaxis_title="PNL ($)")
     return fig
 
 

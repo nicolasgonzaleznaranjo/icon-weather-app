@@ -365,6 +365,13 @@ def compute_trade_kpis(df: pd.DataFrame) -> dict[str, float]:
     drawdown = cumulative - cumulative.cummax()
     gross_profit = winners.sum()
     gross_loss = abs(losers.sum())
+    month_return = 0.0
+    if not closed.empty and "date_closed" in closed.columns:
+        current_month = pd.Timestamp.now().to_period("M")
+        month_df = closed[closed["date_closed"].dt.to_period("M") == current_month].copy()
+        month_invested = (month_df["entry_price"].fillna(0) * month_df["contracts"].fillna(0) + month_df["fees"].fillna(0)).sum()
+        month_pnl = month_df["net_pnl"].fillna(0).sum()
+        month_return = float(month_pnl / month_invested) if month_invested else 0.0
     return {
         "total_pnl": float(pnl_series.sum()) if not pnl_series.empty else 0.0,
         "total_trades": int(len(closed)),
@@ -376,6 +383,7 @@ def compute_trade_kpis(df: pd.DataFrame) -> dict[str, float]:
         "largest_win": float(winners.max()) if not winners.empty else 0.0,
         "largest_loss": float(losers.min()) if not losers.empty else 0.0,
         "max_drawdown": float(drawdown.min()) if not drawdown.empty else 0.0,
+        "month_return": month_return,
     }
 
 

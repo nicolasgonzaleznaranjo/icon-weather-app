@@ -112,7 +112,7 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
         target_date = target_date or datetime.now().date()
 
         try:
-            forecast = forecast_snapshot(nws, float(row.latitude), float(row.longitude), target_date=target_date)
+            forecast = forecast_snapshot(nws, float(row.latitude), float(row.longitude), target_date=target_date, station=row.nws_station)
         except Exception:
             forecast = {
                 "forecast_high": None,
@@ -133,6 +133,7 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
                 "short_forecast": forecast.get("short_forecast") or "N/A",
                 "observed_high_today": forecast.get("observed_high_today") if include_observed else None,
                 "observed_low_today": forecast.get("observed_low_today") if include_observed else None,
+                "forecast_low_from_now": forecast.get("forecast_low_from_now"),
                 "forecast_url": forecast.get("forecast_url") or row.forecast_source,
                 "high_markets": high_markets,
                 "low_markets": low_markets,
@@ -164,18 +165,15 @@ def load_high_monitor_rows() -> pd.DataFrame:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_low_monitor_rows() -> pd.DataFrame:
-    nws = NWSClient()
     rows = []
     for item in _load_city_basics(include_observed=True):
         status = _best_status(item["low_markets"], "low", item["forecast_low"])
-        seven_day = _next_night_forecast(nws, item["forecast_url"], item["target_date"])
         rows.append(
             {
                 "Signal": _signal_from_status(status),
                 "City": item["market_name"],
                 "Observed Last 3 Days": _display_temp(item["observed_low_today"]),
-                "Hourly Forecast": _display_temp(item["forecast_low"]),
-                "7 Day Forecast": _display_temp(seven_day),
+                "Hourly Forecast": _display_temp(item["forecast_low_from_now"] if item["forecast_low_from_now"] is not None else item["forecast_low"]),
                 "Kalshi Forecast (F)": _display_temp(_kalshi_single_forecast(item["low_markets"])),
                 "Short description": item["short_forecast"],
                 "Code": item["nws_station"],

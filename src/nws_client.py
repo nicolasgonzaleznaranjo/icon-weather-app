@@ -51,8 +51,34 @@ class NWSClient:
             table = next((t for t in tables if any("Time" in str(col) for col in t.columns)), None)
             if table is not None:
                 temp_column = next((col for col in table.columns if "Air" in str(col) or "Temperature" in str(col)), None)
+                time_column = next((col for col in table.columns if "Time" in str(col)), None)
                 if temp_column is not None:
-                    temp_values = pd.to_numeric(table[temp_column], errors="coerce").dropna()
+                    working = table.copy()
+                    working[temp_column] = pd.to_numeric(working[temp_column], errors="coerce")
+                    if time_column is not None:
+                        working[time_column] = working[time_column].astype(str)
+
+                        def _to_minutes(value: str) -> int | None:
+                            cleaned = value.strip().upper().replace(" ", "")
+                            match_time = re.match(r"(\d{1,2}):(\d{2})(AM|PM)", cleaned)
+                            if not match_time:
+                                return None
+                            hour = int(match_time.group(1))
+                            minute = int(match_time.group(2))
+                            period = match_time.group(3)
+                            if period == "AM":
+                                hour = 0 if hour == 12 else hour
+                            else:
+                                hour = 12 if hour == 12 else hour + 12
+                            return hour * 60 + minute
+
+                        working["minutes"] = working[time_column].map(_to_minutes)
+                        after_midnight = working[working["minutes"].notna()].copy()
+                        after_midnight = after_midnight[after_midnight["minutes"] >= 0]
+                        temp_values = after_midnight[temp_column].dropna()
+                    else:
+                        temp_values = working[temp_column].dropna()
+
                     if not temp_values.empty:
                         observed_high_today = float(temp_values.max())
                         observed_low_today = float(temp_values.min())
@@ -66,25 +92,32 @@ class NWSClient:
         }
 
 
-def forecast_snapshot(client: NWSClient, latitude: float, longitude: float, target_date: date | None = None) -> dict[str, Any]:
+def forecast_snapshot(client: NWSClient, latitude: float, longitude: float, target_date: date | None = None, station: str | None = None) -> dict[str, Any]:
     point = client.get_point_metadata(latitude, longitude)
     forecast_url = point.get("forecast")
     hourly_url = point.get("forecastHourly")
-    station = str(point.get("stationIdentifier") or "").split("/")[-1] if point.get("stationIdentifier") else None
+    station_id = station or (str(point.get("stationIdentifier") or "").split("/")[-1] if point.get("stationIdentifier") else None)
     if not forecast_url or not hourly_url:
         raise ValueError("NWS point metadata did not return forecast URLs.")
 
     forecast = client.get_forecast(forecast_url)
     hourly = client.get_hourly_forecast(hourly_url)
-    history = client.get_station_history_meta(station) if station else {"url": None, "last_updated": None, "observed_high_today": None, "observed_low_today": None}
+    history = client.get_station_history_meta(station_id) if station_id else {"url": None, "last_updated": None, "observed_high_today": None, "observed_low_today": None}
     periods = hourly.get("periods", [])
     target_date = target_date or datetime.now().date()
+    now_local = datetime.now().astimezone()
 
     target_periods = []
     for period in periods:
         start = datetime.fromisoformat(period["startTime"])
         if start.date() == target_date:
             target_periods.append(period)
+
+    remaining_periods = []
+    for period in periods:
+        start = datetime.fromisoformat(period["startTime"])
+        if start.date() == target_date and start >= now_local:
+            remaining_periods.append(period)
 
     if not target_periods:
         daily_periods = forecast.get("periods", [])
@@ -104,12 +137,15 @@ def forecast_snapshot(client: NWSClient, latitude: float, longitude: float, targ
         }
 
     temps = [period.get("temperature") for period in target_periods if isinstance(period.get("temperature"), (int, float))]
+    remaining_temps = [period.get("temperature") for period in remaining_periods if isinstance(period.get("temperature"), (int, float))]
     forecast_high = max(temps) if temps else None
     forecast_low = min(temps) if temps else None
+    forecast_low_from_now = min(remaining_temps) if remaining_temps else forecast_low
     current_period = target_periods[0] if target_periods else {}
     return {
         "forecast_high": forecast_high,
         "forecast_low": forecast_low,
+        "forecast_low_from_now": forecast_low_from_now,
         "forecast_updated": hourly.get("updateTime") or forecast.get("updateTime"),
         "short_forecast": current_period.get("shortForecast"),
         "forecast_url": forecast_url,
