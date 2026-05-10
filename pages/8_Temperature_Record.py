@@ -26,18 +26,10 @@ if st.button("Refresh Temperature Record"):
     st.rerun()
 
 history_df = load_market_snapshots()["historical"].copy()
-for column in ["NWS Forecasted High T", "NWS Forecasted Low T", "NWS Realized High T", "NWS Realized Low T"]:
-    history_df[column] = history_df[column].map(lambda x: f"{int(x)}°" if pd.notna(x) else "N/A")
-history_df["Delta NWS"] = history_df["Delta NWS"].map(lambda x: f"{x:+.1f}°" if pd.notna(x) else "N/A")
-history_df["Delta Kalshi"] = history_df["Delta Kalshi"].map(lambda x: f"{x:+.1f}°" if pd.notna(x) else "N/A")
 
 st.dataframe(
     history_df,
     use_container_width=True,
     hide_index=True,
-    column_config={
-        "Forecast Source": st.column_config.LinkColumn("Forecast Source"),
-        "Observed Source": st.column_config.LinkColumn("Observed Source"),
-        "Climate Source": st.column_config.LinkColumn("Climate Source"),
-    },
+    height=820,
 )

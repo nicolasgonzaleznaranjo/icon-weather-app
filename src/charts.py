@@ -98,7 +98,7 @@ def build_map_deck(df: pd.DataFrame) -> pdk.Deck | None:
     if df.empty:
         return None
     view_state = pdk.ViewState(latitude=float(df["latitude"].mean()), longitude=float(df["longitude"].mean()), zoom=3.4, pitch=0)
-    layer = pdk.Layer(
+    point_layer = pdk.Layer(
         "ScatterplotLayer",
         df,
         get_position="[longitude, latitude]",
@@ -110,11 +110,24 @@ def build_map_deck(df: pd.DataFrame) -> pdk.Deck | None:
         get_line_color=[255, 255, 255, 40],
         line_width_min_pixels=1,
     )
+    text_layer = pdk.Layer(
+        "TextLayer",
+        df,
+        get_position="[longitude, latitude]",
+        get_text="label",
+        get_size=13,
+        get_color=[238, 242, 247, 220],
+        get_angle=0,
+        get_text_anchor="'middle'",
+        get_alignment_baseline="'bottom'",
+        get_pixel_offset=[0, -18],
+        pickable=False,
+    )
     return pdk.Deck(
         map_provider="carto",
         map_style="dark",
         initial_view_state=view_state,
-        layers=[layer],
+        layers=[point_layer, text_layer],
         tooltip={
             "html": "<b>{market_name}</b><br/>Station: {nws_station}<br/>Forecast High / Low: {forecast_high} / {forecast_low}<br/>Current PNL: {current_pnl}<br/>Trades: {total_trades}<br/>Win Rate: {win_rate}<br/>Open Exposure: {open_exposure}",
             "style": {"backgroundColor": "#111419", "color": "#eef2f7"},

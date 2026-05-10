@@ -108,6 +108,18 @@ def compute_yes_no_prices(market: dict[str, Any]) -> dict[str, float | None]:
     }
 
 
+def dollars_field(value: Any) -> float | None:
+    parsed = safe_float(value)
+    return round(parsed, 4) if parsed is not None else None
+
+
+def cents_int_to_dollars(value: Any) -> float | None:
+    parsed = safe_float(value)
+    if parsed is None:
+        return None
+    return round(parsed / 100, 2)
+
+
 class KalshiClient:
     def __init__(self) -> None:
         self.credentials = get_credentials()
@@ -182,21 +194,55 @@ class KalshiClient:
     def get_positions(self) -> dict[str, Any]:
         return self.request("GET", "/portfolio/positions", auth_required=True)
 
+    def get_fills(
+        self,
+        *,
+        limit: int = 500,
+        cursor: str | None = None,
+        min_ts: int | None = None,
+        max_ts: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        if min_ts is not None:
+            params["min_ts"] = min_ts
+        if max_ts is not None:
+            params["max_ts"] = max_ts
+        return self.request("GET", "/portfolio/fills", params=params, auth_required=True)
+
+    def get_settlements(
+        self,
+        *,
+        limit: int = 500,
+        cursor: str | None = None,
+        min_ts: int | None = None,
+        max_ts: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        if min_ts is not None:
+            params["min_ts"] = min_ts
+        if max_ts is not None:
+            params["max_ts"] = max_ts
+        return self.request("GET", "/portfolio/settlements", params=params, auth_required=True)
+
 
 def parse_balance(raw_balance: dict[str, Any]) -> float | None:
-    for key in (
-        "cash_balance",
-        "balance",
-        "portfolio_balance",
-        "available_balance",
-        "cash_balance_dollars",
-        "balance_dollars",
-    ):
-        value = raw_balance.get(key)
-        parsed = safe_float(value)
-        if parsed is not None:
-            return parsed
     nested = raw_balance.get("balance") if isinstance(raw_balance.get("balance"), dict) else None
     if nested:
         return parse_balance(nested)
+    for key in ("balance_dollars", "cash_balance_dollars", "portfolio_value_dollars", "available_balance_dollars"):
+        value = dollars_field(raw_balance.get(key))
+        if value is not None:
+            return value
+    for key in ("balance", "portfolio_value"):
+        value = cents_int_to_dollars(raw_balance.get(key))
+        if value is not None:
+            return value
+    for key in ("cash_balance", "available_balance"):
+        value = dollars_field(raw_balance.get(key))
+        if value is not None:
+            return value
     return None

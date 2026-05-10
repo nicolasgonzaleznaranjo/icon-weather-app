@@ -11,36 +11,56 @@ from src.charts import (
     plot_pnl_distribution,
     plot_win_loss_breakdown,
 )
+from src.market_data import load_market_snapshots
 from src.trade_log import (
     compute_trade_kpis,
     get_best_worst_days,
     get_market_performance,
-    load_trade_log,
+    get_effective_trade_log,
     recent_trades_table,
 )
 from src.utils import bootstrap_page
 
 
-bootstrap_page("Performance Overview")
+bootstrap_page("Home")
 
 st.markdown(
     """
     <div class="hero-block">
         <div>
-            <div class="eyebrow">Performance Overview</div>
-            <h1>ICON Weather App</h1>
-            <p>Fast operating view for PNL, hit rate, market mix, and what mattered most recently.</p>
+            <div class="eyebrow">Home</div>
+            <h1>Home</h1>
+            <p>Fast operating view for real Kalshi portfolio value, recent performance, and what matters most right now.</p>
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-trade_log = load_trade_log()
+snapshot = load_market_snapshots()
+trade_log, trade_source = get_effective_trade_log()
 kpis = compute_trade_kpis(trade_log)
 market_perf = get_market_performance(trade_log)
 recent_trades = recent_trades_table(trade_log, limit=12)
 best_day, worst_day = get_best_worst_days(trade_log)
+portfolio = snapshot.get("portfolio", {})
+
+portfolio_cards = [
+    (
+        "Portfolio Value",
+        f"${float(portfolio['portfolio_value']):,.2f}" if portfolio.get("portfolio_value") is not None else "N/A",
+        "positive" if (portfolio.get("portfolio_value") or 0) >= 0 else "",
+    ),
+    (
+        "Cash Balance",
+        f"${float(portfolio['balance']):,.2f}" if portfolio.get("balance") is not None else "N/A",
+        "",
+    ),
+]
+metric_card_row(portfolio_cards)
+
+if trade_source != "kalshi":
+    st.warning("Kalshi trade history is unavailable right now, so Home performance is falling back to the local ledger.")
 
 metric_card_row(
     [
