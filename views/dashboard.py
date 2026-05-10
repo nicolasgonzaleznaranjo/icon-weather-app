@@ -42,6 +42,7 @@ trade_source = snapshot["trade_source"]
 portfolio = snapshot["portfolio"]
 kpis = compute_trade_kpis(trade_log)
 market_perf = get_market_performance(trade_log)
+known_market_perf = market_perf[market_perf["market"].notna() & (market_perf["market"] != "Unknown")].copy()
 recent_trades = recent_trades_table(trade_log, limit=12)
 best_day, worst_day = get_best_worst_days(trade_log)
 
@@ -77,20 +78,20 @@ metric_card_row(
 insight_cols = st.columns(4)
 with insight_cols[0]:
     st.markdown("<div class='section-label'>Best Market</div>", unsafe_allow_html=True)
-    if market_perf.empty:
+    if known_market_perf.empty:
         st.info("No market data yet.")
     else:
-        best_market = market_perf.sort_values("net_pnl", ascending=False).iloc[0]
+        best_market = known_market_perf.sort_values("net_pnl", ascending=False).iloc[0]
         st.markdown(
             f"<div class='mini-panel'><strong>{best_market['market']}</strong><br><span class='metric-positive'>${best_market['net_pnl']:,.2f}</span></div>",
             unsafe_allow_html=True,
         )
 with insight_cols[1]:
     st.markdown("<div class='section-label'>Worst Market</div>", unsafe_allow_html=True)
-    if market_perf.empty:
+    if known_market_perf.empty:
         st.info("No market data yet.")
     else:
-        worst_market = market_perf.sort_values("net_pnl", ascending=True).iloc[0]
+        worst_market = known_market_perf.sort_values("net_pnl", ascending=True).iloc[0]
         st.markdown(
             f"<div class='mini-panel'><strong>{worst_market['market']}</strong><br><span class='metric-negative'>${worst_market['net_pnl']:,.2f}</span></div>",
             unsafe_allow_html=True,
@@ -125,7 +126,7 @@ with chart_col2:
 chart_col3, chart_col4 = st.columns((1.2, 1))
 with chart_col3:
     st.markdown("<div class='section-label'>PNL by Market</div>", unsafe_allow_html=True)
-    st.plotly_chart(plot_pnl_by_market(market_perf), use_container_width=True)
+    st.plotly_chart(plot_pnl_by_market(known_market_perf if not known_market_perf.empty else market_perf), use_container_width=True)
 with chart_col4:
     st.markdown("<div class='section-label'>Win / Loss Breakdown</div>", unsafe_allow_html=True)
     st.plotly_chart(plot_win_loss_breakdown(trade_log), use_container_width=True)
@@ -136,10 +137,10 @@ with chart_col5:
     st.plotly_chart(plot_pnl_distribution(trade_log), use_container_width=True)
 with chart_col6:
     st.markdown("<div class='section-label'>Most Active Markets</div>", unsafe_allow_html=True)
-    if market_perf.empty:
+    if known_market_perf.empty:
         st.info("No market activity yet.")
     else:
-        active = market_perf.sort_values("total_trades", ascending=False).head(8).copy()
+        active = known_market_perf.sort_values("total_trades", ascending=False).head(8).copy()
         active["Win Rate"] = active["win_rate"].map(lambda x: f"{x:.0%}" if pd.notna(x) else "N/A")
         active["Net PNL"] = active["net_pnl"].map(lambda x: f"${x:,.2f}")
         st.dataframe(

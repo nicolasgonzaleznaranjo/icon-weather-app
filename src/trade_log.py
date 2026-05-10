@@ -13,23 +13,52 @@ from src.utils import KALSHI_TRANSACTIONS_PATH, TRADE_LOG_PATH, load_market_conf
 def _market_lookup() -> dict[str, dict]:
     config = load_market_config()
     lookup: dict[str, dict] = {}
+
+    alias_map = {
+        "KXHIGHCHI": ("Chicago", "KORD", "High"),
+        "KXHIGHDEN": ("Denver", "KDEN", "High"),
+        "KXHIGHLAX": ("Los Angeles", "KLAX", "High"),
+        "KXHIGHMIA": ("Miami", "KMIA", "High"),
+        "KXHIGHNY": ("New York City", "KNYC", "High"),
+        "KXHIGHPHIL": ("Philadelphia", "KPHL", "High"),
+        "KXHIGHTDC": ("Washington DC", "KDCA", "High"),
+        "KXHIGHTHOU": ("Houston", "KIAH", "High"),
+        "KXHIGHTLV": ("Las Vegas", "KLAS", "High"),
+        "KXHIGHTMIN": ("Minneapolis", "KMSP", "High"),
+        "KXHIGHTNOLA": ("New Orleans", "KMSY", "High"),
+        "KXHIGHTSATX": ("San Antonio", "KSAT", "High"),
+        "KXLOWTDC": ("Washington DC", "KDCA", "Low"),
+        "KXLOWTHOU": ("Houston", "KIAH", "Low"),
+        "KXLOWTLV": ("Las Vegas", "KLAS", "Low"),
+        "KXLOWTPHIL": ("Philadelphia", "KPHL", "Low"),
+        "KXLOWTSATX": ("San Antonio", "KSAT", "Low"),
+    }
+
     for row in config.itertuples(index=False):
-        lookup[row.kalshi_high_series] = {
+        high_payload = {
             "market": row.market_name,
             "nws_station": row.nws_station,
             "high_low": "High",
         }
-        lookup[row.kalshi_low_series] = {
+        low_payload = {
             "market": row.market_name,
             "nws_station": row.nws_station,
             "high_low": "Low",
         }
+        lookup[row.kalshi_high_series] = high_payload
+        lookup[row.kalshi_low_series] = low_payload
+
+    for series, (market, station, high_low) in alias_map.items():
+        lookup[series] = {"market": market, "nws_station": station, "high_low": high_low}
     return lookup
 
 
 def _series_match(ticker: str, lookup: dict[str, dict]) -> dict:
+    prefix = ticker.split("-", 1)[0]
+    if prefix in lookup:
+        return lookup[prefix]
     for series, payload in lookup.items():
-        if ticker.startswith(series):
+        if prefix.startswith(series):
             return payload
     return {"market": "Unknown", "nws_station": "N/A", "high_low": "N/A"}
 
@@ -149,7 +178,7 @@ def load_trade_log(path: str | Path = TRADE_LOG_PATH) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_kalshi_account_snapshot() -> dict:
     client = KalshiClient()
     snapshot = {
@@ -188,7 +217,7 @@ def load_kalshi_account_snapshot() -> dict:
             "portfolio_value_dollars": balance_payload.get("portfolio_value_dollars"),
         }
     )
-    portfolio_value = (balance or 0.0) + (positions_value or 0.0) if balance is not None or positions_value is not None else None
+    positions_market_values: list[float] = []
 
     positions_rows: list[dict] = []
     for row in positions_payload.get("market_positions", []):
@@ -199,6 +228,13 @@ def load_kalshi_account_snapshot() -> dict:
         exposure = dollars_field(row.get("market_exposure_dollars"))
         realized = dollars_field(row.get("realized_pnl_dollars"))
         fees = dollars_field(row.get("fees_paid_dollars"))
+        market_value = None
+        for key in ("market_value_dollars", "current_value_dollars", "position_value_dollars", "value_dollars"):
+            market_value = dollars_field(row.get(key))
+            if market_value is not None:
+                break
+        if market_value is not None:
+            positions_market_values.append(market_value)
         if abs(contract_value) < 1e-9:
             continue
         positions_rows.append(
@@ -228,8 +264,13 @@ def load_kalshi_account_snapshot() -> dict:
                 "market_ticker": ticker,
                 "close_day": pd.NaT,
                 "open_exposure": exposure,
+                "market_value": market_value,
             }
         )
+
+    if positions_market_values:
+        positions_value = round(sum(positions_market_values), 2)
+    portfolio_value = (balance or 0.0) + (positions_value or 0.0) if balance is not None or positions_value is not None else None
 
     settlements_rows: list[dict] = []
     for row in settlements:

@@ -141,7 +141,7 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
     return rows
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_high_monitor_rows() -> pd.DataFrame:
     rows = []
     for item in _load_city_basics(include_observed=False):
@@ -156,10 +156,13 @@ def load_high_monitor_rows() -> pd.DataFrame:
                 "Code": item["nws_station"],
             }
         )
-    return pd.DataFrame(rows).sort_values("City").reset_index(drop=True)
+    df = pd.DataFrame(rows)
+    df["signal_order"] = df["Signal"].map({"Check": 0, "No check": 1}).fillna(2)
+    df = df.sort_values(["signal_order", "City"]).drop(columns=["signal_order"]).reset_index(drop=True)
+    return df
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_low_monitor_rows() -> pd.DataFrame:
     nws = NWSClient()
     rows = []
@@ -178,7 +181,10 @@ def load_low_monitor_rows() -> pd.DataFrame:
                 "Code": item["nws_station"],
             }
         )
-    return pd.DataFrame(rows).sort_values("City").reset_index(drop=True)
+    df = pd.DataFrame(rows)
+    df["signal_order"] = df["Signal"].map({"Check": 0, "No check": 1}).fillna(2)
+    df = df.sort_values(["signal_order", "City"]).drop(columns=["signal_order"]).reset_index(drop=True)
+    return df
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -238,7 +244,7 @@ def load_map_rows() -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("market_name").reset_index(drop=True)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_home_snapshot() -> dict[str, Any]:
     trade_log, trade_source = get_effective_trade_log()
     return {
