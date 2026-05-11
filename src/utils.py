@@ -134,33 +134,47 @@ def bootstrap_page(page_title: str) -> None:
                 border-radius: 16px;
                 overflow: hidden;
                 background: var(--surface);
+                overflow-x: auto;
             }
             .monitor-table {
                 width: 100%;
                 border-collapse: collapse;
-                font-size: .96rem;
+                font-size: 1.02rem;
+                min-width: 860px;
             }
             .monitor-table th {
                 background: #1b1f27;
                 color: var(--muted);
-                font-size: .8rem;
+                font-size: .86rem;
                 font-weight: 700;
                 letter-spacing: .02em;
-                padding: .9rem .8rem;
+                padding: 1rem .85rem;
                 text-align: left;
                 border-bottom: 1px solid var(--border);
                 white-space: nowrap;
             }
             .monitor-table td {
-                padding: .9rem .8rem;
+                padding: 1rem .85rem;
                 border-bottom: 1px solid rgba(255,255,255,.06);
                 vertical-align: middle;
+            }
+            .monitor-table tbody tr:nth-child(odd) td {
+                background: rgba(255,255,255,.015);
+            }
+            .monitor-table tbody tr:nth-child(even) td {
+                background: rgba(255,255,255,.045);
             }
             .monitor-table tr:last-child td {
                 border-bottom: none;
             }
             .monitor-table tr.highlight-row td {
                 background: rgba(97,167,255,.12);
+            }
+            .monitor-table .center-col {
+                text-align: center;
+            }
+            .monitor-table .left-col {
+                text-align: left;
             }
             .signal-check {
                 color: var(--green);
@@ -187,6 +201,17 @@ def bootstrap_page(page_title: str) -> None:
             .diag-warn { background: rgba(216,179,107,.10); }
             @media (max-width: 980px) {
                 .hero-block { align-items:flex-start; flex-direction:column; }
+                .monitor-table {
+                    font-size: .98rem;
+                    min-width: 760px;
+                }
+                .monitor-table th {
+                    font-size: .82rem;
+                    padding: .9rem .75rem;
+                }
+                .monitor-table td {
+                    padding: .92rem .75rem;
+                }
             }
         </style>
         """,
@@ -283,7 +308,15 @@ def render_monitor_table(df: pd.DataFrame, *, highlight_city: str | None = None)
     if df.empty:
         st.info("No rows available yet.")
         return
-    header = "".join(f"<th>{escape(str(column))}</th>" for column in df.columns)
+    centered = {"Signal", "City", "Observed Today", "Forecast Today (F)", "Hourly Forecast (F)", "Kalshi Forecast (F)", "Code"}
+    left_aligned = {"Short description"}
+    def col_class(name: str) -> str:
+        if name in centered:
+            return "center-col"
+        if name in left_aligned:
+            return "left-col"
+        return ""
+    header = "".join(f"<th class='{col_class(str(column))}'>{escape(str(column))}</th>" for column in df.columns)
     body_rows: list[str] = []
     for _, row in df.iterrows():
         row_classes: list[str] = []
@@ -297,7 +330,7 @@ def render_monitor_table(df: pd.DataFrame, *, highlight_city: str | None = None)
                 cell_html = f"<span class='{css}'>{escape(str(value))}</span>"
             else:
                 cell_html = escape("" if pd.isna(value) else str(value))
-            cells.append(f"<td>{cell_html}</td>")
+            cells.append(f"<td class='{col_class(str(column))}'>{cell_html}</td>")
         class_attr = f" class='{' '.join(row_classes)}'" if row_classes else ""
         body_rows.append(f"<tr{class_attr}>{''.join(cells)}</tr>")
     html = f"""

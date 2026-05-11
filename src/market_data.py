@@ -19,7 +19,7 @@ STATUS_PRIORITY = {"Strong candidate": 0, "Tradable": 1, "Watch": 2, "Avoid": 3}
 def _display_temp(value: float | None) -> str:
     if value is None or pd.isna(value):
         return "N/A"
-    return f"{int(round(float(value)))}°"
+    return f"{float(value):.1f}°"
 
 
 def _signal_from_status(status: str) -> str:
@@ -137,6 +137,7 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
                 "nws_station": row.nws_station,
                 "target_date": target_date,
                 "forecast_high": forecast.get("forecast_high"),
+                "forecast_high_today": forecast.get("forecast_high_today"),
                 "forecast_low": forecast.get("forecast_low"),
                 "short_forecast": forecast.get("short_forecast") or "N/A",
                 "observed_high_today": forecast.get("observed_high_today") if include_observed else None,
@@ -160,7 +161,9 @@ def load_high_monitor_rows() -> pd.DataFrame:
             {
                 "Signal": _signal_from_status(status),
                 "City": item["market_name"],
-                "Hourly Forecast": _display_temp(item["forecast_high"]),
+                "Hourly Forecast (F)": _display_temp(
+                    item["forecast_high_today"] if item["forecast_high_today"] is not None else item["forecast_high"]
+                ),
                 "Kalshi Forecast (F)": _display_temp(_kalshi_single_forecast(item["high_markets"])),
                 "Short description": item["short_forecast"],
                 "Code": item["nws_station"],
@@ -182,7 +185,7 @@ def load_low_monitor_rows() -> pd.DataFrame:
                 "Signal": _signal_from_status(status),
                 "City": item["market_name"],
                 "Observed Today": _display_temp(item["observed_low_today"]),
-                "Forecast Today": _display_temp(
+                "Forecast Today (F)": _display_temp(
                     item["forecast_low_today"]
                     if item["forecast_low_today"] is not None
                     else item["forecast_low_from_now"]
