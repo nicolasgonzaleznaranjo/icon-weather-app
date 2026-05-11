@@ -130,8 +130,101 @@ class NWSClient:
             "observed_low_today": observed_low_today,
         }
 
+    @st.cache_data(ttl=900, show_spinner=False)
+    def get_digital_low_forecast_today(_self, url: str, timezone_name: str) -> float | None:
+        response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=25)
+        response.raise_for_status()
+        tables = pd.read_html(StringIO(response.text))
 
-def forecast_snapshot(client: NWSClient, latitude: float, longitude: float, target_date: date | None = None, station: str | None = None) -> dict[str, Any]:
+        target = None
+        for table in tables:
+            text = " ".join(table.astype(str).fillna("").head(6).astype(str).values.flatten())
+            if "Date" in text and "Hour" in text and "Temperature" in text:
+                target = table.copy()
+                break
+
+        if target is None or target.empty:
+            return None
+
+        target = target.fillna("")
+        rows = []
+        for _, row in target.iterrows():
+            first = str(row.iloc[0]).strip()
+            values = [str(v).strip() for v in row.tolist()]
+            rows.append((first, values))
+
+        def find_row(keyword: str) -> list[str] | None:
+            for first, values in rows:
+                if keyword.lower() in first.lower():
+                    return values
+            return None
+
+        date_row = find_row("Date")
+        hour_row = find_row("Hour")
+        temp_row = find_row("Temperature")
+        if not date_row or not hour_row or not temp_row:
+            return None
+
+        date_values = date_row[1:]
+        hour_values = hour_row[1:]
+        temp_values = temp_row[1:]
+        width = min(len(date_values), len(hour_values), len(temp_values))
+        date_values = date_values[:width]
+        hour_values = hour_values[:width]
+        temp_values = temp_values[:width]
+
+        current_date = None
+        parsed_points: list[tuple[datetime, float]] = []
+        tz = ZoneInfo(timezone_name)
+        now_local = datetime.now(tz)
+        start_hour = now_local.replace(minute=0, second=0, microsecond=0)
+
+        for raw_date, raw_hour, raw_temp in zip(date_values, hour_values, temp_values):
+            if raw_date:
+                current_date = raw_date
+            if not current_date or not raw_hour or not raw_temp:
+                continue
+            try:
+                month_str, day_str = current_date.split("/")
+                hour_int = int(float(raw_hour))
+                temp_float = float(raw_temp)
+                year = now_local.year
+                point_dt = datetime(year, int(month_str), int(day_str), hour_int, 0, tzinfo=tz)
+                parsed_points.append((point_dt, temp_float))
+            except Exception:
+                continue
+
+        if not parsed_points:
+            return None
+
+        future_points = [(dt, temp) for dt, temp in parsed_points if dt >= start_hour]
+        if not future_points:
+            return None
+
+        cutoff = None
+        for dt, _temp in future_points:
+            if dt > start_hour and dt.hour == 0:
+                cutoff = dt
+                break
+
+        if cutoff is None:
+            cutoff = start_hour + timedelta(hours=12)
+
+        today_window = [temp for dt, temp in future_points if dt <= cutoff]
+        if not today_window:
+            return None
+        return float(min(today_window))
+
+
+def forecast_snapshot(
+    client: NWSClient,
+    latitude: float,
+    longitude: float,
+    target_date: date | None = None,
+    station: str | None = None,
+    timezone_name: str | None = None,
+    digital_forecast_url: str | None = None,
+) -> dict[str, Any]:
     point = client.get_point_metadata(latitude, longitude)
     forecast_url = point.get("forecast")
     hourly_url = point.get("forecastHourly")
@@ -189,6 +282,13 @@ def forecast_snapshot(client: NWSClient, latitude: float, longitude: float, targ
     forecast_low_from_now = min(remaining_temps) if remaining_temps else forecast_low
     remaining_today_temps = [period.get("temperature") for period in remaining_today_periods if isinstance(period.get("temperature"), (int, float))]
     forecast_low_today = min(remaining_today_temps) if remaining_today_temps else forecast_low_from_now
+    if digital_forecast_url and timezone_name:
+        try:
+            digital_low = client.get_digital_low_forecast_today(digital_forecast_url, timezone_name)
+            if digital_low is not None:
+                forecast_low_today = digital_low
+        except Exception:
+            pass
     current_period = target_periods[0] if target_periods else {}
     return {
         "forecast_high": forecast_high,

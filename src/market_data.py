@@ -112,7 +112,15 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
         target_date = target_date or datetime.now().date()
 
         try:
-            forecast = forecast_snapshot(nws, float(row.latitude), float(row.longitude), target_date=target_date, station=row.nws_station)
+            forecast = forecast_snapshot(
+                nws,
+                float(row.latitude),
+                float(row.longitude),
+                target_date=target_date,
+                station=row.nws_station,
+                timezone_name=row.timezone,
+                digital_forecast_url=row.forecast_source,
+            )
         except Exception:
             forecast = {
                 "forecast_high": None,
