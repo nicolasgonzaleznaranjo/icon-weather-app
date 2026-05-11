@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+import html
 from io import StringIO
 import re
 from typing import Any
@@ -135,11 +136,108 @@ class NWSClient:
     def get_digital_temperature_points(_self, url: str, timezone_name: str) -> list[dict[str, Any]]:
         response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=25)
         response.raise_for_status()
-        tables = pd.read_html(StringIO(response.text))
+        html_text = response.text
+
+        def _clean_cell(cell_html: str) -> str:
+            text = re.sub(r"<[^>]+>", " ", cell_html, flags=re.IGNORECASE | re.DOTALL)
+            text = html.unescape(text).replace("\xa0", " ")
+            text = re.sub(r"\s+", " ", text).strip()
+            return text
+
+        row_matches = re.findall(r"<tr[^>]*>(.*?)</tr>", html_text, flags=re.IGNORECASE | re.DOTALL)
+        parsed_rows: list[list[str]] = []
+        for row_html in row_matches:
+            cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, flags=re.IGNORECASE | re.DOTALL)
+            cleaned = [_clean_cell(cell) for cell in cells]
+            if any(cleaned):
+                parsed_rows.append(cleaned)
+
+        def _is_date_row(row: list[str]) -> bool:
+            return bool(row) and row[0].strip().lower() == "date"
+
+        def _is_hour_row(row: list[str]) -> bool:
+            return bool(row) and row[0].strip().lower().startswith("hour")
+
+        def _is_temp_row(row: list[str]) -> bool:
+            if not row:
+                return False
+            label = row[0].strip().lower()
+            return label.startswith("temperature")
+
+        tz = ZoneInfo(timezone_name)
+        now_local = datetime.now(tz)
+        parsed_points: list[dict[str, Any]] = []
+        index = 0
+        while index < len(parsed_rows):
+            row = parsed_rows[index]
+            if not _is_date_row(row):
+                index += 1
+                continue
+
+            raw_date = next((cell for cell in row[1:] if re.fullmatch(r"\d{2}/\d{2}", cell)), None)
+            if raw_date is None:
+                index += 1
+                continue
+
+            hour_row = None
+            temp_row = None
+            scan = index + 1
+            while scan < len(parsed_rows) and not _is_date_row(parsed_rows[scan]):
+                candidate = parsed_rows[scan]
+                if hour_row is None and _is_hour_row(candidate):
+                    hour_row = candidate
+                elif temp_row is None and _is_temp_row(candidate):
+                    temp_row = candidate
+                scan += 1
+
+            if hour_row is None or temp_row is None:
+                index = scan
+                continue
+
+            hour_values = [cell for cell in hour_row[1:] if re.fullmatch(r"\d{1,2}", cell)]
+            temp_values = [cell for cell in temp_row[1:] if re.fullmatch(r"-?\d+(?:\.\d+)?", cell)]
+            width = min(len(hour_values), len(temp_values))
+            if width == 0:
+                index = scan
+                continue
+
+            month_str, day_str = raw_date.split("/")
+            for raw_hour, raw_temp in zip(hour_values[:width], temp_values[:width]):
+                try:
+                    point_dt = datetime(
+                        now_local.year,
+                        int(month_str),
+                        int(day_str),
+                        int(raw_hour),
+                        0,
+                        tzinfo=tz,
+                    )
+                    parsed_points.append(
+                        {
+                            "timestamp": point_dt,
+                            "date": point_dt.date(),
+                            "hour": point_dt.strftime("%H:%M"),
+                            "temperature": float(raw_temp),
+                        }
+                    )
+                except Exception:
+                    continue
+
+            index = scan
+
+        if parsed_points:
+            parsed_points.sort(key=lambda point: point["timestamp"])
+            return parsed_points
+
+        # Fallback to pandas table parsing if the row-based HTML parser finds nothing.
+        try:
+            tables = pd.read_html(StringIO(html_text))
+        except Exception:
+            return []
 
         target = None
         for table in tables:
-            text = " ".join(table.astype(str).fillna("").head(6).astype(str).values.flatten())
+            text = " ".join(table.astype(str).fillna("").head(8).astype(str).values.flatten())
             if "Date" in text and "Hour" in text and "Temperature" in text:
                 target = table.copy()
                 break
@@ -148,62 +246,50 @@ class NWSClient:
             return []
 
         target = target.fillna("")
-        rows = []
-        for _, row in target.iterrows():
-            first = str(row.iloc[0]).strip()
-            values = [str(v).strip() for v in row.tolist()]
-            rows.append((first, values))
-
-        def find_row(keyword: str) -> list[str] | None:
-            for first, values in rows:
-                if keyword.lower() in first.lower():
-                    return values
-            return None
-
-        date_row = find_row("Date")
-        hour_row = find_row("Hour")
-        temp_row = find_row("Temperature")
-        if not date_row or not hour_row or not temp_row:
-            return []
-
-        date_values = date_row[1:]
-        hour_values = hour_row[1:]
-        temp_values = temp_row[1:]
-        width = min(len(date_values), len(hour_values), len(temp_values))
-        date_values = date_values[:width]
-        hour_values = hour_values[:width]
-        temp_values = temp_values[:width]
-
         current_date = None
-        parsed_points: list[dict[str, Any]] = []
-        tz = ZoneInfo(timezone_name)
-        now_local = datetime.now(tz)
+        hour_values: list[str] = []
+        temp_values: list[str] = []
+        date_values: list[str] = []
+        for _, row in target.iterrows():
+            first = str(row.iloc[0]).strip().lower()
+            values = [str(v).strip() for v in row.tolist()][1:]
+            if first == "date":
+                date_values = values
+            elif first.startswith("hour"):
+                hour_values = values
+            elif first.startswith("temperature"):
+                temp_values = values
 
-        for raw_date, raw_hour, raw_temp in zip(date_values, hour_values, temp_values):
+        width = min(len(date_values), len(hour_values), len(temp_values))
+        for raw_date, raw_hour, raw_temp in zip(date_values[:width], hour_values[:width], temp_values[:width]):
             if raw_date:
                 current_date = raw_date
-            if not current_date or not raw_hour or not raw_temp:
+            if not current_date or not re.fullmatch(r"\d{2}/\d{2}", current_date):
                 continue
+            if not re.fullmatch(r"\d{1,2}", raw_hour) or not re.fullmatch(r"-?\d+(?:\.\d+)?", raw_temp):
+                continue
+            month_str, day_str = current_date.split("/")
             try:
-                month_str, day_str = current_date.split("/")
-                hour_int = int(float(raw_hour))
-                temp_float = float(raw_temp)
-                year = now_local.year
-                point_dt = datetime(year, int(month_str), int(day_str), hour_int, 0, tzinfo=tz)
+                point_dt = datetime(
+                    now_local.year,
+                    int(month_str),
+                    int(day_str),
+                    int(raw_hour),
+                    0,
+                    tzinfo=tz,
+                )
                 parsed_points.append(
                     {
                         "timestamp": point_dt,
                         "date": point_dt.date(),
                         "hour": point_dt.strftime("%H:%M"),
-                        "temperature": temp_float,
+                        "temperature": float(raw_temp),
                     }
                 )
             except Exception:
                 continue
 
-        if not parsed_points:
-            return []
-
+        parsed_points.sort(key=lambda point: point["timestamp"])
         return parsed_points
 
 
@@ -214,7 +300,7 @@ def select_digital_temperature_for_date(
 ) -> dict[str, Any]:
     day_points = [point for point in points if point.get("date") == target_date and isinstance(point.get("temperature"), (int, float))]
     if not day_points:
-        return {"value": None, "hour": None, "points": []}
+        return {"value": None, "hour": None, "points": [], "count": 0, "first_timestamp": None, "last_timestamp": None}
 
     selected = min(day_points, key=lambda point: float(point["temperature"])) if mode == "min" else max(
         day_points, key=lambda point: float(point["temperature"])
@@ -226,6 +312,9 @@ def select_digital_temperature_for_date(
             f"{point['timestamp'].strftime('%Y-%m-%d %H:%M')}={float(point['temperature']):.1f}"
             for point in day_points
         ],
+        "count": len(day_points),
+        "first_timestamp": day_points[0]["timestamp"].strftime("%Y-%m-%d %H:%M"),
+        "last_timestamp": day_points[-1]["timestamp"].strftime("%Y-%m-%d %H:%M"),
     }
 
 
@@ -309,6 +398,9 @@ def forecast_snapshot(
             "digital_selected_low_hour": digital_low_meta["hour"],
             "digital_selected_high_value": digital_high_meta["value"],
             "digital_selected_high_hour": digital_high_meta["hour"],
+            "digital_points_count": digital_low_meta["count"] or digital_high_meta["count"],
+            "digital_first_timestamp": digital_low_meta["first_timestamp"] or digital_high_meta["first_timestamp"],
+            "digital_last_timestamp": digital_low_meta["last_timestamp"] or digital_high_meta["last_timestamp"],
         }
 
     temps = [period.get("temperature") for period in target_periods if isinstance(period.get("temperature"), (int, float))]
@@ -341,4 +433,7 @@ def forecast_snapshot(
         "digital_selected_low_hour": digital_low_meta["hour"],
         "digital_selected_high_value": digital_high_meta["value"],
         "digital_selected_high_hour": digital_high_meta["hour"],
+        "digital_points_count": digital_low_meta["count"] or digital_high_meta["count"],
+        "digital_first_timestamp": digital_low_meta["first_timestamp"] or digital_high_meta["first_timestamp"],
+        "digital_last_timestamp": digital_low_meta["last_timestamp"] or digital_high_meta["last_timestamp"],
     }

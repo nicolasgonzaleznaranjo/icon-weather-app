@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -75,6 +76,32 @@ def _best_status(markets: list[dict[str, Any]], market_type: str, forecast_value
     return "Avoid"
 
 
+def _resolve_active_market_date(markets: list[dict[str, Any]], timezone_name: str) -> tuple[Any | None, list[dict[str, Any]]]:
+    if not markets:
+        return None, []
+    local_today = datetime.now(ZoneInfo(timezone_name)).date()
+    dated_markets: list[tuple[Any, dict[str, Any]]] = []
+    for market in markets:
+        parsed = parse_event_date(str(market.get("ticker", "")))
+        if parsed is not None:
+            dated_markets.append((parsed, market))
+    if not dated_markets:
+        return None, markets
+
+    future_or_today = sorted({parsed for parsed, _market in dated_markets if parsed >= local_today})
+    active_date = future_or_today[0] if future_or_today else sorted({parsed for parsed, _market in dated_markets})[0]
+    filtered = [market for parsed, market in dated_markets if parsed == active_date]
+    return active_date, filtered
+
+
+def _filter_markets_to_local_today(markets: list[dict[str, Any]], timezone_name: str) -> tuple[Any, list[dict[str, Any]]]:
+    local_today = datetime.now(ZoneInfo(timezone_name)).date()
+    today_markets = [
+        market for market in markets if parse_event_date(str(market.get("ticker", ""))) == local_today
+    ]
+    return local_today, (today_markets or markets)
+
+
 def _next_night_forecast(nws: NWSClient, forecast_url: str, target_date) -> float | None:
     try:
         forecast = nws.get_forecast(forecast_url)
@@ -95,6 +122,7 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
 
     for row in config.itertuples(index=False):
+        local_today = datetime.now(ZoneInfo(row.timezone)).date()
         try:
             high_markets = kalshi.get_series_markets(row.kalshi_high_series, status="open", limit=8)
         except Exception:
@@ -104,12 +132,11 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
         except Exception:
             low_markets = []
 
-        target_date = None
-        if high_markets:
-            target_date = parse_event_date(high_markets[0]["ticker"])
-        elif low_markets:
-            target_date = parse_event_date(low_markets[0]["ticker"])
-        target_date = target_date or datetime.now().date()
+        _, high_markets_today = _filter_markets_to_local_today(high_markets, row.timezone)
+        _, low_markets_today = _filter_markets_to_local_today(low_markets, row.timezone)
+        high_markets = high_markets_today
+        low_markets = low_markets_today
+        target_date = local_today
 
         try:
             forecast = forecast_snapshot(
@@ -152,6 +179,9 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
                 "digital_selected_low_hour": forecast.get("digital_selected_low_hour"),
                 "digital_selected_high_value": forecast.get("digital_selected_high_value"),
                 "digital_selected_high_hour": forecast.get("digital_selected_high_hour"),
+                "digital_points_count": forecast.get("digital_points_count"),
+                "digital_first_timestamp": forecast.get("digital_first_timestamp"),
+                "digital_last_timestamp": forecast.get("digital_last_timestamp"),
                 "high_markets": high_markets,
                 "low_markets": low_markets,
             }
@@ -192,8 +222,13 @@ def load_high_monitor_debug_rows() -> pd.DataFrame:
                 "Active Market Date": item.get("active_market_date"),
                 "Digital Forecast URL": item.get("digital_forecast_url"),
                 "Hourly Forecast (F)": _display_temp(item["forecast_high_today"]),
+                "Selected High Forecast": _display_temp(item.get("digital_selected_high_value")),
                 "Selected High Hour": item.get("digital_selected_high_hour") or "N/A",
+                "Selected Low Forecast": _display_temp(item.get("digital_selected_low_value")),
                 "Selected Low Hour": item.get("digital_selected_low_hour") or "N/A",
+                "Number Of Points Used": item.get("digital_points_count") or 0,
+                "First Timestamp Used": item.get("digital_first_timestamp") or "N/A",
+                "Last Timestamp Used": item.get("digital_last_timestamp") or "N/A",
                 "Parsed Forecast Timestamps": " | ".join(item.get("digital_points_for_date") or []),
             }
         )
@@ -239,8 +274,13 @@ def load_low_monitor_debug_rows() -> pd.DataFrame:
                 "Digital Forecast URL": item.get("digital_forecast_url"),
                 "Observed Today": _display_temp(item["observed_low_today"]),
                 "Forecast Today (F)": _display_temp(item["forecast_low_today"]),
+                "Selected Low Forecast": _display_temp(item.get("digital_selected_low_value")),
                 "Selected Low Hour": item.get("digital_selected_low_hour") or "N/A",
+                "Selected High Forecast": _display_temp(item.get("digital_selected_high_value")),
                 "Selected High Hour": item.get("digital_selected_high_hour") or "N/A",
+                "Number Of Points Used": item.get("digital_points_count") or 0,
+                "First Timestamp Used": item.get("digital_first_timestamp") or "N/A",
+                "Last Timestamp Used": item.get("digital_last_timestamp") or "N/A",
                 "Parsed Forecast Timestamps": " | ".join(item.get("digital_points_for_date") or []),
             }
         )
