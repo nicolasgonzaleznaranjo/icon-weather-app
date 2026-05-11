@@ -134,6 +134,7 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
                 "observed_high_today": forecast.get("observed_high_today") if include_observed else None,
                 "observed_low_today": forecast.get("observed_low_today") if include_observed else None,
                 "forecast_low_from_now": forecast.get("forecast_low_from_now"),
+                "forecast_low_today": forecast.get("forecast_low_today"),
                 "forecast_url": forecast.get("forecast_url") or row.forecast_source,
                 "high_markets": high_markets,
                 "low_markets": low_markets,
@@ -172,8 +173,14 @@ def load_low_monitor_rows() -> pd.DataFrame:
             {
                 "Signal": _signal_from_status(status),
                 "City": item["market_name"],
-                "Observed Last 3 Days": _display_temp(item["observed_low_today"]),
-                "Hourly Forecast": _display_temp(item["forecast_low_from_now"] if item["forecast_low_from_now"] is not None else item["forecast_low"]),
+                "Observed Today": _display_temp(item["observed_low_today"]),
+                "Forecast Today": _display_temp(
+                    item["forecast_low_today"]
+                    if item["forecast_low_today"] is not None
+                    else item["forecast_low_from_now"]
+                    if item["forecast_low_from_now"] is not None
+                    else item["forecast_low"]
+                ),
                 "Kalshi Forecast (F)": _display_temp(_kalshi_single_forecast(item["low_markets"])),
                 "Short description": item["short_forecast"],
                 "Code": item["nws_station"],

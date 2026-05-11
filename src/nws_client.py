@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from io import StringIO
 import re
 from typing import Any
@@ -58,9 +58,23 @@ class NWSClient:
 
             table = next((t for t in normalized_tables if any("Time" in str(col) for col in t.columns)), None)
             if table is not None:
-                temp_column = next((col for col in table.columns if "Temperature" in str(col) and "Air" in str(col)), None)
+                temp_column = next(
+                    (
+                        col
+                        for col in table.columns
+                        if "temperature" in str(col).lower() and "air" in str(col).lower()
+                    ),
+                    None,
+                )
                 if temp_column is None:
-                    temp_column = next((col for col in table.columns if "Air" in str(col) or "Temperature" in str(col)), None)
+                    temp_column = next(
+                        (
+                            col
+                            for col in table.columns
+                            if "temperature" in str(col).lower() and "6 hour" not in str(col).lower()
+                        ),
+                        None,
+                    )
                 time_column = next((col for col in table.columns if "Time" in str(col)), None)
                 date_column = next((col for col in table.columns if str(col).strip().lower() == "date" or " date" in str(col).lower()), None)
                 if temp_column is not None:
@@ -95,9 +109,7 @@ class NWSClient:
                         working["minutes"] = working[time_column].map(_to_minutes)
                         timed = working[working["minutes"].notna() & working[temp_column].notna()].copy()
                         if not timed.empty:
-                            timed["distance_to_midnight"] = timed["minutes"].abs()
-                            first_obs = timed.sort_values(["distance_to_midnight", "minutes"]).iloc[0]
-                            observed_low_today = float(first_obs[temp_column])
+                            observed_low_today = float(timed[temp_column].min())
                             observed_high_today = float(timed[temp_column].max())
                         else:
                             temp_values = working[temp_column].dropna()
@@ -146,6 +158,13 @@ def forecast_snapshot(client: NWSClient, latitude: float, longitude: float, targ
         if start.date() == target_date and start >= now_local:
             remaining_periods.append(period)
 
+    cutoff = datetime.combine(now_local.date() + timedelta(days=1), time.min, tzinfo=now_local.tzinfo)
+    remaining_today_periods = []
+    for period in periods:
+        start = datetime.fromisoformat(period["startTime"])
+        if start >= now_local and start <= cutoff:
+            remaining_today_periods.append(period)
+
     if not target_periods:
         daily_periods = forecast.get("periods", [])
         day_period = next((p for p in daily_periods if datetime.fromisoformat(p["startTime"]).date() == target_date and p.get("isDaytime")), None)
@@ -168,11 +187,14 @@ def forecast_snapshot(client: NWSClient, latitude: float, longitude: float, targ
     forecast_high = max(temps) if temps else None
     forecast_low = min(temps) if temps else None
     forecast_low_from_now = min(remaining_temps) if remaining_temps else forecast_low
+    remaining_today_temps = [period.get("temperature") for period in remaining_today_periods if isinstance(period.get("temperature"), (int, float))]
+    forecast_low_today = min(remaining_today_temps) if remaining_today_temps else forecast_low_from_now
     current_period = target_periods[0] if target_periods else {}
     return {
         "forecast_high": forecast_high,
         "forecast_low": forecast_low,
         "forecast_low_from_now": forecast_low_from_now,
+        "forecast_low_today": forecast_low_today,
         "forecast_updated": hourly.get("updateTime") or forecast.get("updateTime"),
         "short_forecast": current_period.get("shortForecast"),
         "forecast_url": forecast_url,
