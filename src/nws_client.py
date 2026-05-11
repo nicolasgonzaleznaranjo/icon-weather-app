@@ -144,13 +144,28 @@ class NWSClient:
             text = re.sub(r"\s+", " ", text).strip()
             return text
 
-        row_matches = re.findall(r"<tr[^>]*>(.*?)</tr>", html_text, flags=re.IGNORECASE | re.DOTALL)
-        parsed_rows: list[list[str]] = []
-        for row_html in row_matches:
-            cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, flags=re.IGNORECASE | re.DOTALL)
-            cleaned = [_clean_cell(cell) for cell in cells]
-            if any(cleaned):
-                parsed_rows.append(cleaned)
+        def _parse_html_rows(markup: str) -> list[list[str]]:
+            row_matches = re.findall(r"<tr[^>]*>(.*?)</tr>", markup, flags=re.IGNORECASE | re.DOTALL)
+            parsed_rows: list[list[str]] = []
+            for row_html in row_matches:
+                expanded_row: list[str] = []
+                for cell_match in re.finditer(
+                    r"<t[dh]([^>]*)>(.*?)</t[dh]>",
+                    row_html,
+                    flags=re.IGNORECASE | re.DOTALL,
+                ):
+                    attrs = cell_match.group(1) or ""
+                    cell_body = cell_match.group(2) or ""
+                    cleaned = _clean_cell(cell_body)
+                    colspan_match = re.search(r'colspan=["\']?(\d+)', attrs, flags=re.IGNORECASE)
+                    colspan = int(colspan_match.group(1)) if colspan_match else 1
+                    colspan = max(1, colspan)
+                    expanded_row.extend([cleaned] * colspan)
+                if any(expanded_row):
+                    parsed_rows.append(expanded_row)
+            return parsed_rows
+
+        parsed_rows = _parse_html_rows(html_text)
 
         def _is_date_row(row: list[str]) -> bool:
             return bool(row) and row[0].strip().lower() == "date"
@@ -167,42 +182,27 @@ class NWSClient:
         tz = ZoneInfo(timezone_name)
         now_local = datetime.now(tz)
         parsed_points: list[dict[str, Any]] = []
-        index = 0
-        while index < len(parsed_rows):
-            row = parsed_rows[index]
-            if not _is_date_row(row):
-                index += 1
-                continue
+        date_row = next((row for row in parsed_rows if _is_date_row(row)), None)
+        hour_row = next((row for row in parsed_rows if _is_hour_row(row)), None)
+        temp_row = next((row for row in parsed_rows if _is_temp_row(row)), None)
 
-            raw_date = next((cell for cell in row[1:] if re.fullmatch(r"\d{2}/\d{2}", cell)), None)
-            if raw_date is None:
-                index += 1
-                continue
+        if date_row and hour_row and temp_row:
+            date_values = date_row[1:]
+            hour_values = hour_row[1:]
+            temp_values = temp_row[1:]
+            width = min(len(date_values), len(hour_values), len(temp_values))
+            current_date = None
 
-            hour_row = None
-            temp_row = None
-            scan = index + 1
-            while scan < len(parsed_rows) and not _is_date_row(parsed_rows[scan]):
-                candidate = parsed_rows[scan]
-                if hour_row is None and _is_hour_row(candidate):
-                    hour_row = candidate
-                elif temp_row is None and _is_temp_row(candidate):
-                    temp_row = candidate
-                scan += 1
-
-            if hour_row is None or temp_row is None:
-                index = scan
-                continue
-
-            hour_values = [cell for cell in hour_row[1:] if re.fullmatch(r"\d{1,2}", cell)]
-            temp_values = [cell for cell in temp_row[1:] if re.fullmatch(r"-?\d+(?:\.\d+)?", cell)]
-            width = min(len(hour_values), len(temp_values))
-            if width == 0:
-                index = scan
-                continue
-
-            month_str, day_str = raw_date.split("/")
-            for raw_hour, raw_temp in zip(hour_values[:width], temp_values[:width]):
+            for raw_date, raw_hour, raw_temp in zip(date_values[:width], hour_values[:width], temp_values[:width]):
+                if re.fullmatch(r"\d{2}/\d{2}", raw_date or ""):
+                    current_date = raw_date
+                if not current_date or not re.fullmatch(r"\d{2}/\d{2}", current_date):
+                    continue
+                if not re.fullmatch(r"\d{1,2}", raw_hour or ""):
+                    continue
+                if not re.fullmatch(r"-?\d+(?:\.\d+)?", raw_temp or ""):
+                    continue
+                month_str, day_str = current_date.split("/")
                 try:
                     point_dt = datetime(
                         now_local.year,
@@ -212,18 +212,16 @@ class NWSClient:
                         0,
                         tzinfo=tz,
                     )
-                    parsed_points.append(
-                        {
-                            "timestamp": point_dt,
-                            "date": point_dt.date(),
-                            "hour": point_dt.strftime("%H:%M"),
-                            "temperature": float(raw_temp),
-                        }
-                    )
                 except Exception:
                     continue
-
-            index = scan
+                parsed_points.append(
+                    {
+                        "timestamp": point_dt,
+                        "date": point_dt.date(),
+                        "hour": point_dt.strftime("%H:%M"),
+                        "temperature": float(raw_temp),
+                    }
+                )
 
         if parsed_points:
             parsed_points.sort(key=lambda point: point["timestamp"])
@@ -262,11 +260,11 @@ class NWSClient:
 
         width = min(len(date_values), len(hour_values), len(temp_values))
         for raw_date, raw_hour, raw_temp in zip(date_values[:width], hour_values[:width], temp_values[:width]):
-            if raw_date:
+            if re.fullmatch(r"\d{2}/\d{2}", raw_date or ""):
                 current_date = raw_date
             if not current_date or not re.fullmatch(r"\d{2}/\d{2}", current_date):
                 continue
-            if not re.fullmatch(r"\d{1,2}", raw_hour) or not re.fullmatch(r"-?\d+(?:\.\d+)?", raw_temp):
+            if not re.fullmatch(r"\d{1,2}", raw_hour or "") or not re.fullmatch(r"-?\d+(?:\.\d+)?", raw_temp or ""):
                 continue
             month_str, day_str = current_date.split("/")
             try:
@@ -278,16 +276,16 @@ class NWSClient:
                     0,
                     tzinfo=tz,
                 )
-                parsed_points.append(
-                    {
-                        "timestamp": point_dt,
-                        "date": point_dt.date(),
-                        "hour": point_dt.strftime("%H:%M"),
-                        "temperature": float(raw_temp),
-                    }
-                )
             except Exception:
                 continue
+            parsed_points.append(
+                {
+                    "timestamp": point_dt,
+                    "date": point_dt.date(),
+                    "hour": point_dt.strftime("%H:%M"),
+                    "temperature": float(raw_temp),
+                }
+            )
 
         parsed_points.sort(key=lambda point: point["timestamp"])
         return parsed_points
@@ -318,6 +316,41 @@ def select_digital_temperature_for_date(
     }
 
 
+def select_digital_temperature_for_window(
+    points: list[dict[str, Any]],
+    timezone_name: str,
+    mode: str,
+) -> dict[str, Any]:
+    tz = ZoneInfo(timezone_name)
+    now_local = datetime.now(tz)
+    window_start = now_local.replace(minute=0, second=0, microsecond=0)
+    next_midnight = datetime.combine(window_start.date() + timedelta(days=1), time.min, tzinfo=tz)
+    window_points = [
+        point
+        for point in points
+        if isinstance(point.get("temperature"), (int, float))
+        and point.get("timestamp") is not None
+        and window_start <= point["timestamp"] <= next_midnight
+    ]
+    if not window_points:
+        return {"value": None, "hour": None, "points": [], "count": 0, "first_timestamp": None, "last_timestamp": None}
+
+    selected = min(window_points, key=lambda point: float(point["temperature"])) if mode == "min" else max(
+        window_points, key=lambda point: float(point["temperature"])
+    )
+    return {
+        "value": float(selected["temperature"]),
+        "hour": selected["hour"],
+        "points": [
+            f"{point['timestamp'].strftime('%Y-%m-%d %H:%M')}={float(point['temperature']):.1f}"
+            for point in window_points
+        ],
+        "count": len(window_points),
+        "first_timestamp": window_points[0]["timestamp"].strftime("%Y-%m-%d %H:%M"),
+        "last_timestamp": window_points[-1]["timestamp"].strftime("%Y-%m-%d %H:%M"),
+    }
+
+
 def forecast_snapshot(
     client: NWSClient,
     latitude: float,
@@ -339,7 +372,7 @@ def forecast_snapshot(
     history = client.get_station_history_meta(station_id) if station_id else {"url": None, "last_updated": None, "observed_high_today": None, "observed_low_today": None}
     periods = hourly.get("periods", [])
     target_date = target_date or datetime.now().date()
-    now_local = datetime.now().astimezone()
+    now_local = datetime.now(ZoneInfo(timezone_name)) if timezone_name else datetime.now().astimezone()
 
     target_periods = []
     for period in periods:
@@ -366,8 +399,8 @@ def forecast_snapshot(
     if digital_forecast_url and timezone_name:
         try:
             digital_points = client.get_digital_temperature_points(digital_forecast_url, timezone_name)
-            digital_low_meta = select_digital_temperature_for_date(digital_points, target_date, "min")
-            digital_high_meta = select_digital_temperature_for_date(digital_points, target_date, "max")
+            digital_low_meta = select_digital_temperature_for_window(digital_points, timezone_name, "min")
+            digital_high_meta = select_digital_temperature_for_window(digital_points, timezone_name, "max")
         except Exception:
             pass
 
