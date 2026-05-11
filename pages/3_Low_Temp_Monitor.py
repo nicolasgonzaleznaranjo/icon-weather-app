@@ -24,5 +24,4 @@ if st.button("Refresh Low Temp Data"):
     st.rerun()
 
 monitor_df = load_low_monitor_rows().copy()
-highlight_city = st.selectbox("Highlight city", ["None"] + monitor_df["City"].tolist(), key="low-highlight")
-render_monitor_table(monitor_df, highlight_city=None if highlight_city == "None" else highlight_city)
+render_monitor_table(monitor_df, highlight_city=None)
