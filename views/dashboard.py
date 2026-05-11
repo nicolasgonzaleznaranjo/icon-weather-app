@@ -8,7 +8,7 @@ from src.charts import (
     plot_cumulative_pnl,
     plot_daily_pnl,
     plot_pnl_by_market,
-    plot_pnl_distribution,
+    plot_worst_markets,
     plot_win_loss_breakdown,
 )
 from src.market_data import load_home_snapshot
@@ -151,8 +151,11 @@ with chart_col4:
 
 chart_col5, chart_col6 = st.columns((1.2, 1))
 with chart_col5:
-    st.markdown("<div class='section-label'>PNL Distribution</div>", unsafe_allow_html=True)
-    st.plotly_chart(plot_pnl_distribution(trade_log), use_container_width=True)
+    st.markdown("<div class='section-label'>Worst Cities</div>", unsafe_allow_html=True)
+    worst_chart_df = known_market_perf[known_market_perf["net_pnl"] < 0].copy() if not known_market_perf.empty else market_perf.copy()
+    if worst_chart_df.empty:
+        worst_chart_df = known_market_perf if not known_market_perf.empty else market_perf
+    st.plotly_chart(plot_worst_markets(worst_chart_df), use_container_width=True)
 with chart_col6:
     st.markdown("<div class='section-label'>Most Active Markets</div>", unsafe_allow_html=True)
     if known_market_perf.empty:

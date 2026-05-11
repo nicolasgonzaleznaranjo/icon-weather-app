@@ -10,7 +10,7 @@ import streamlit as st
 PLOT_LAYOUT = {
     "paper_bgcolor": "#111419",
     "plot_bgcolor": "#111419",
-    "font": {"color": "#eef2f7", "family": "Courier New, Courier, monospace"},
+    "font": {"color": "#eef2f7", "family": "Space Mono, Courier New, Courier, monospace"},
     "margin": {"l": 20, "r": 20, "t": 20, "b": 20},
 }
 
@@ -133,6 +133,27 @@ def plot_pnl_by_market(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def plot_worst_markets(df: pd.DataFrame) -> go.Figure:
+    if df.empty:
+        return _empty_figure("No worst-market data yet.")
+    worst = df.sort_values("net_pnl", ascending=True).head(12).copy()
+    worst["bar_color"] = worst["net_pnl"].apply(lambda v: "#ff6b6b" if v < 0 else "#6ec27c" if v > 0 else "#6b7280")
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=worst["market"],
+                y=worst["net_pnl"],
+                marker_color=worst["bar_color"],
+                text=[f"${v:.2f}" for v in worst["net_pnl"]],
+                textposition="outside",
+                hovertemplate="%{x}<br>PNL: $%{y:.2f}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(**PLOT_LAYOUT, height=330, xaxis_title="", yaxis_title="PNL ($)")
+    return fig
+
+
 def plot_win_loss_breakdown(df: pd.DataFrame) -> go.Figure:
     if df.empty:
         return _empty_figure("No outcomes yet.")
@@ -148,14 +169,6 @@ def plot_win_loss_breakdown(df: pd.DataFrame) -> go.Figure:
     )
     fig = px.pie(counts, names="Outcome", values="Count", color="Outcome", color_discrete_map={"Wins": "#6ec27c", "Losses": "#ff6b6b", "Flat": "#4b5563"}, hole=0.6)
     fig.update_layout(**PLOT_LAYOUT, height=330, showlegend=True)
-    return fig
-
-
-def plot_pnl_distribution(df: pd.DataFrame) -> go.Figure:
-    if df.empty:
-        return _empty_figure("No PNL distribution yet.")
-    fig = px.histogram(df, x="net_pnl", nbins=20, color_discrete_sequence=["#61a7ff"])
-    fig.update_layout(**PLOT_LAYOUT, height=330, xaxis_title="Net PNL ($)", yaxis_title="Trades")
     return fig
 
 
