@@ -4,6 +4,7 @@ from datetime import date, datetime, time, timedelta
 from io import StringIO
 import re
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -131,7 +132,7 @@ class NWSClient:
         }
 
     @st.cache_data(ttl=900, show_spinner=False)
-    def get_digital_temperature_window(_self, url: str, timezone_name: str, mode: str) -> float | None:
+    def get_digital_temperature_points(_self, url: str, timezone_name: str) -> list[dict[str, Any]]:
         response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=25)
         response.raise_for_status()
         tables = pd.read_html(StringIO(response.text))
@@ -144,7 +145,7 @@ class NWSClient:
                 break
 
         if target is None or target.empty:
-            return None
+            return []
 
         target = target.fillna("")
         rows = []
@@ -163,7 +164,7 @@ class NWSClient:
         hour_row = find_row("Hour")
         temp_row = find_row("Temperature")
         if not date_row or not hour_row or not temp_row:
-            return None
+            return []
 
         date_values = date_row[1:]
         hour_values = hour_row[1:]
@@ -174,10 +175,9 @@ class NWSClient:
         temp_values = temp_values[:width]
 
         current_date = None
-        parsed_points: list[tuple[datetime, float]] = []
+        parsed_points: list[dict[str, Any]] = []
         tz = ZoneInfo(timezone_name)
         now_local = datetime.now(tz)
-        start_hour = now_local.replace(minute=0, second=0, microsecond=0)
 
         for raw_date, raw_hour, raw_temp in zip(date_values, hour_values, temp_values):
             if raw_date:
@@ -190,30 +190,43 @@ class NWSClient:
                 temp_float = float(raw_temp)
                 year = now_local.year
                 point_dt = datetime(year, int(month_str), int(day_str), hour_int, 0, tzinfo=tz)
-                parsed_points.append((point_dt, temp_float))
+                parsed_points.append(
+                    {
+                        "timestamp": point_dt,
+                        "date": point_dt.date(),
+                        "hour": point_dt.strftime("%H:%M"),
+                        "temperature": temp_float,
+                    }
+                )
             except Exception:
                 continue
 
         if not parsed_points:
-            return None
+            return []
 
-        future_points = [(dt, temp) for dt, temp in parsed_points if dt >= start_hour]
-        if not future_points:
-            return None
+        return parsed_points
 
-        cutoff = None
-        for dt, _temp in future_points:
-            if dt > start_hour and dt.hour == 0:
-                cutoff = dt
-                break
 
-        if cutoff is None:
-            cutoff = start_hour + timedelta(hours=12)
+def select_digital_temperature_for_date(
+    points: list[dict[str, Any]],
+    target_date: date,
+    mode: str,
+) -> dict[str, Any]:
+    day_points = [point for point in points if point.get("date") == target_date and isinstance(point.get("temperature"), (int, float))]
+    if not day_points:
+        return {"value": None, "hour": None, "points": []}
 
-        today_window = [temp for dt, temp in future_points if dt <= cutoff]
-        if not today_window:
-            return None
-        return float(min(today_window) if mode == "min" else max(today_window))
+    selected = min(day_points, key=lambda point: float(point["temperature"])) if mode == "min" else max(
+        day_points, key=lambda point: float(point["temperature"])
+    )
+    return {
+        "value": float(selected["temperature"]),
+        "hour": selected["hour"],
+        "points": [
+            f"{point['timestamp'].strftime('%Y-%m-%d %H:%M')}={float(point['temperature']):.1f}"
+            for point in day_points
+        ],
+    }
 
 
 def forecast_snapshot(
@@ -258,13 +271,29 @@ def forecast_snapshot(
         if start >= now_local and start <= cutoff:
             remaining_today_periods.append(period)
 
+    digital_points: list[dict[str, Any]] = []
+    digital_low_meta = {"value": None, "hour": None, "points": []}
+    digital_high_meta = {"value": None, "hour": None, "points": []}
+    if digital_forecast_url and timezone_name:
+        try:
+            digital_points = client.get_digital_temperature_points(digital_forecast_url, timezone_name)
+            digital_low_meta = select_digital_temperature_for_date(digital_points, target_date, "min")
+            digital_high_meta = select_digital_temperature_for_date(digital_points, target_date, "max")
+        except Exception:
+            pass
+
     if not target_periods:
-        daily_periods = forecast.get("periods", [])
-        day_period = next((p for p in daily_periods if datetime.fromisoformat(p["startTime"]).date() == target_date and p.get("isDaytime")), None)
-        night_period = next((p for p in daily_periods if datetime.fromisoformat(p["startTime"]).date() == target_date and not p.get("isDaytime")), None)
+        day_period = next((p for p in forecast.get("periods", []) if datetime.fromisoformat(p["startTime"]).date() == target_date and p.get("isDaytime")), None)
+        night_period = next((p for p in forecast.get("periods", []) if datetime.fromisoformat(p["startTime"]).date() == target_date and not p.get("isDaytime")), None)
+        forecast_high = day_period.get("temperature") if day_period else None
+        forecast_low = night_period.get("temperature") if night_period else None
+        forecast_high_today = digital_high_meta["value"] if digital_high_meta["value"] is not None else forecast_high
+        forecast_low_today = digital_low_meta["value"] if digital_low_meta["value"] is not None else forecast_low
         return {
-            "forecast_high": day_period.get("temperature") if day_period else None,
-            "forecast_low": night_period.get("temperature") if night_period else None,
+            "forecast_high": forecast_high,
+            "forecast_high_today": forecast_high_today,
+            "forecast_low": forecast_low,
+            "forecast_low_today": forecast_low_today,
             "forecast_updated": forecast.get("updateTime") or hourly.get("updateTime"),
             "short_forecast": (day_period or night_period or {}).get("shortForecast"),
             "forecast_url": forecast_url,
@@ -273,6 +302,13 @@ def forecast_snapshot(
             "observed_url": history.get("url"),
             "observed_high_today": history.get("observed_high_today"),
             "observed_low_today": history.get("observed_low_today"),
+            "active_market_date": target_date.isoformat(),
+            "digital_forecast_url": digital_forecast_url,
+            "digital_points_for_date": digital_low_meta["points"] or digital_high_meta["points"],
+            "digital_selected_low_value": digital_low_meta["value"],
+            "digital_selected_low_hour": digital_low_meta["hour"],
+            "digital_selected_high_value": digital_high_meta["value"],
+            "digital_selected_high_hour": digital_high_meta["hour"],
         }
 
     temps = [period.get("temperature") for period in target_periods if isinstance(period.get("temperature"), (int, float))]
@@ -281,22 +317,8 @@ def forecast_snapshot(
     forecast_low = min(temps) if temps else None
     forecast_low_from_now = min(remaining_temps) if remaining_temps else forecast_low
     remaining_today_temps = [period.get("temperature") for period in remaining_today_periods if isinstance(period.get("temperature"), (int, float))]
-    forecast_low_today = min(remaining_today_temps) if remaining_today_temps else forecast_low_from_now
-    if digital_forecast_url and timezone_name:
-        try:
-            digital_low = client.get_digital_temperature_window(digital_forecast_url, timezone_name, "min")
-            if digital_low is not None:
-                forecast_low_today = digital_low
-        except Exception:
-            pass
-    forecast_high_today = forecast_high
-    if digital_forecast_url and timezone_name:
-        try:
-            digital_high = client.get_digital_temperature_window(digital_forecast_url, timezone_name, "max")
-            if digital_high is not None:
-                forecast_high_today = digital_high
-        except Exception:
-            pass
+    forecast_low_today = digital_low_meta["value"] if digital_low_meta["value"] is not None else (min(remaining_today_temps) if remaining_today_temps else forecast_low_from_now)
+    forecast_high_today = digital_high_meta["value"] if digital_high_meta["value"] is not None else forecast_high
     current_period = target_periods[0] if target_periods else {}
     return {
         "forecast_high": forecast_high,
@@ -312,4 +334,11 @@ def forecast_snapshot(
         "observed_url": history.get("url"),
         "observed_high_today": history.get("observed_high_today"),
         "observed_low_today": history.get("observed_low_today"),
+        "active_market_date": target_date.isoformat(),
+        "digital_forecast_url": digital_forecast_url,
+        "digital_points_for_date": digital_low_meta["points"] or digital_high_meta["points"],
+        "digital_selected_low_value": digital_low_meta["value"],
+        "digital_selected_low_hour": digital_low_meta["hour"],
+        "digital_selected_high_value": digital_high_meta["value"],
+        "digital_selected_high_hour": digital_high_meta["hour"],
     }

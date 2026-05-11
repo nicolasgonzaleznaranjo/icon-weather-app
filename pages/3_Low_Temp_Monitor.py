@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.market_data import load_low_monitor_rows
+from src.market_data import load_low_monitor_debug_rows, load_low_monitor_rows
 from src.utils import bootstrap_page, render_monitor_table
 
 bootstrap_page("Low Temperature Monitor")
@@ -21,7 +21,11 @@ st.markdown(
 
 if st.button("Refresh Low Temp Data"):
     load_low_monitor_rows.clear()
+    load_low_monitor_debug_rows.clear()
     st.rerun()
 
 monitor_df = load_low_monitor_rows().copy()
 render_monitor_table(monitor_df, highlight_city=None)
+
+with st.expander("Forecast debug", expanded=False):
+    st.dataframe(load_low_monitor_debug_rows(), use_container_width=True, hide_index=True)

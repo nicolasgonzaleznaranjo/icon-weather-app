@@ -145,6 +145,13 @@ def _load_city_basics(include_observed: bool = False) -> list[dict[str, Any]]:
                 "forecast_low_from_now": forecast.get("forecast_low_from_now"),
                 "forecast_low_today": forecast.get("forecast_low_today"),
                 "forecast_url": forecast.get("forecast_url") or row.forecast_source,
+                "active_market_date": forecast.get("active_market_date"),
+                "digital_forecast_url": forecast.get("digital_forecast_url") or row.forecast_source,
+                "digital_points_for_date": forecast.get("digital_points_for_date") or [],
+                "digital_selected_low_value": forecast.get("digital_selected_low_value"),
+                "digital_selected_low_hour": forecast.get("digital_selected_low_hour"),
+                "digital_selected_high_value": forecast.get("digital_selected_high_value"),
+                "digital_selected_high_hour": forecast.get("digital_selected_high_hour"),
                 "high_markets": high_markets,
                 "low_markets": low_markets,
             }
@@ -176,6 +183,24 @@ def load_high_monitor_rows() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+def load_high_monitor_debug_rows() -> pd.DataFrame:
+    rows = []
+    for item in _load_city_basics(include_observed=False):
+        rows.append(
+            {
+                "City": item["market_name"],
+                "Active Market Date": item.get("active_market_date"),
+                "Digital Forecast URL": item.get("digital_forecast_url"),
+                "Hourly Forecast (F)": _display_temp(item["forecast_high_today"]),
+                "Selected High Hour": item.get("digital_selected_high_hour") or "N/A",
+                "Selected Low Hour": item.get("digital_selected_low_hour") or "N/A",
+                "Parsed Forecast Timestamps": " | ".join(item.get("digital_points_for_date") or []),
+            }
+        )
+    return pd.DataFrame(rows).sort_values("City").reset_index(drop=True)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def load_low_monitor_rows() -> pd.DataFrame:
     rows = []
     for item in _load_city_basics(include_observed=True):
@@ -201,6 +226,25 @@ def load_low_monitor_rows() -> pd.DataFrame:
     df["signal_order"] = df["Signal"].map({"Check": 0, "No check": 1}).fillna(2)
     df = df.sort_values(["signal_order", "City"]).drop(columns=["signal_order"]).reset_index(drop=True)
     return df
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_low_monitor_debug_rows() -> pd.DataFrame:
+    rows = []
+    for item in _load_city_basics(include_observed=True):
+        rows.append(
+            {
+                "City": item["market_name"],
+                "Active Market Date": item.get("active_market_date"),
+                "Digital Forecast URL": item.get("digital_forecast_url"),
+                "Observed Today": _display_temp(item["observed_low_today"]),
+                "Forecast Today (F)": _display_temp(item["forecast_low_today"]),
+                "Selected Low Hour": item.get("digital_selected_low_hour") or "N/A",
+                "Selected High Hour": item.get("digital_selected_high_hour") or "N/A",
+                "Parsed Forecast Timestamps": " | ".join(item.get("digital_points_for_date") or []),
+            }
+        )
+    return pd.DataFrame(rows).sort_values("City").reset_index(drop=True)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
