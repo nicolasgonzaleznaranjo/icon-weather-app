@@ -128,7 +128,15 @@ with insight_cols[3]:
 chart_col1, chart_col2 = st.columns((1.3, 1))
 with chart_col1:
     st.markdown("<div class='section-label'>Cumulative PNL</div>", unsafe_allow_html=True)
-    st.plotly_chart(plot_cumulative_pnl(trade_log), use_container_width=True)
+    cumulative_period = st.radio(
+        "Vista acumulada",
+        ["Diario", "Semana", "Mes", "Año"],
+        index=2,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="cumulative_period",
+    )
+    st.plotly_chart(plot_cumulative_pnl(trade_log, cumulative_period), use_container_width=True)
 with chart_col2:
     st.markdown("<div class='section-label'>Daily PNL</div>", unsafe_allow_html=True)
     st.plotly_chart(plot_daily_pnl(trade_log), use_container_width=True)

@@ -31,7 +31,6 @@ def bootstrap_page(page_title: str) -> None:
     st.markdown(
         """
         <style>
-            @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
             :root {
                 --bg: #080a0d;
                 --surface: #111419;
@@ -46,7 +45,7 @@ def bootstrap_page(page_title: str) -> None:
             }
             .stApp { background: var(--bg); color: var(--text); }
             html, body, .stApp, [class*="css"], [data-testid="stSidebar"], button, input, textarea, select, table, th, td {
-                font-family: 'Space Mono', monospace !important;
+                font-family: "Courier New", Courier, monospace !important;
             }
             [data-testid="stSidebar"] {
                 background: linear-gradient(180deg, #0d1015 0%, #0a0c10 100%);

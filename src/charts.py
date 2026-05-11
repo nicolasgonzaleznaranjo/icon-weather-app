@@ -10,7 +10,7 @@ import streamlit as st
 PLOT_LAYOUT = {
     "paper_bgcolor": "#111419",
     "plot_bgcolor": "#111419",
-    "font": {"color": "#eef2f7"},
+    "font": {"color": "#eef2f7", "family": "Courier New, Courier, monospace"},
     "margin": {"l": 20, "r": 20, "t": 20, "b": 20},
 }
 
@@ -39,10 +39,35 @@ def _empty_figure(message: str) -> go.Figure:
     return fig
 
 
-def plot_cumulative_pnl(df: pd.DataFrame) -> go.Figure:
+def _filter_cumulative_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    if df.empty:
+        return df
+    chart = df.dropna(subset=["date_closed"]).copy()
+    if chart.empty:
+        return chart
+    chart["date_closed"] = pd.to_datetime(chart["date_closed"], errors="coerce")
+    chart = chart.dropna(subset=["date_closed"]).sort_values("date_closed")
+    if chart.empty:
+        return chart
+
+    end_time = chart["date_closed"].max()
+    period_map = {
+        "Diario": pd.Timedelta(days=1),
+        "Semana": pd.Timedelta(days=7),
+        "Mes": pd.Timedelta(days=30),
+        "Año": pd.Timedelta(days=365),
+    }
+    window = period_map.get(period, pd.Timedelta(days=30))
+    start_time = end_time - window
+    return chart[chart["date_closed"] >= start_time].copy()
+
+
+def plot_cumulative_pnl(df: pd.DataFrame, period: str = "Mes") -> go.Figure:
     if df.empty:
         return _empty_figure("No trade log loaded yet.")
-    chart = df.sort_values("date_closed").copy()
+    chart = _filter_cumulative_period(df, period)
+    if chart.empty:
+        return _empty_figure("No hay cierres en ese rango todavía.")
     chart["cumulative_pnl"] = chart["net_pnl"].fillna(0).cumsum()
     fig = px.line(chart, x="date_closed", y="cumulative_pnl")
     fig.update_traces(

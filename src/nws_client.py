@@ -324,13 +324,13 @@ def select_digital_temperature_for_window(
     tz = ZoneInfo(timezone_name)
     now_local = datetime.now(tz)
     window_start = now_local.replace(minute=0, second=0, microsecond=0)
-    next_midnight = datetime.combine(window_start.date() + timedelta(days=1), time.min, tzinfo=tz)
+    next_window_end = datetime.combine(window_start.date() + timedelta(days=1), time(0, 0), tzinfo=tz)
     window_points = [
         point
         for point in points
         if isinstance(point.get("temperature"), (int, float))
         and point.get("timestamp") is not None
-        and window_start <= point["timestamp"] <= next_midnight
+        and window_start <= point["timestamp"] <= next_window_end
     ]
     if not window_points:
         return {"value": None, "hour": None, "points": [], "count": 0, "first_timestamp": None, "last_timestamp": None}
